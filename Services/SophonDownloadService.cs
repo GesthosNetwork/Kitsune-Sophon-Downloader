@@ -136,8 +136,7 @@ public sealed class SophonDownloadService : IDisposable
 
             string matchingField = option.Category.matching_field;
             if (string.IsNullOrWhiteSpace(matchingField))
-                throw new InvalidOperationException(
-                    $"Sophon category '{option.Category.category_id}' does not provide a matching field.");
+                throw new InvalidOperationException($"Sophon category '{option.Category.category_id}' does not provide a matching field.");
 
             LdiffSource? source = await _ldiffMetadataProvider.ResolveAsync(
                 game, toManifest.data.tag, matchingField, option.Category.category_id,
@@ -219,31 +218,16 @@ public sealed class SophonDownloadService : IDisposable
             {
                 var sourceResult = await DownloadChunkManifestAsync(sourceCategory, cancellationToken);
                 SophonChunkManifest sourceChunkManifest = sourceResult.Manifest;
-                byte[] sourceBytes = sourceResult.CompressedBytes;
                 sourceUrl = sourceResult.Url;
                 sourceFileCount = sourceChunkManifest.Chuncks.Count;
                 sourcePaths = sourceChunkManifest.Chuncks
                     .Where(file => !file.IsFolder && !string.IsNullOrWhiteSpace(file.File))
                     .Select(file => NormalizeSophonPath(file.File))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                manifestFiles.Add(new SophonManifestArtifact
-                {
-                    FileName = GetUrlFileName(sourceUrl),
-                    SourceUrl = sourceUrl,
-                    Data = sourceBytes
-                });
             }
 
-            (SophonChunkManifest targetChunkManifest, byte[] targetBytes, string targetUrl) =
-                await DownloadChunkManifestAsync(targetCategory, cancellationToken);
-
-            manifestFiles.Add(new SophonManifestArtifact
-            {
-                FileName = GetUrlFileName(targetUrl),
-                SourceUrl = targetUrl,
-                Data = targetBytes
-            });
+            SophonChunkManifest targetChunkManifest =
+                (await DownloadChunkManifestAsync(targetCategory, cancellationToken)).Manifest;
 
             var addedFiles = targetChunkManifest.Chuncks
                 .Where(file => !file.IsFolder && !string.IsNullOrWhiteSpace(file.File))
@@ -270,8 +254,7 @@ public sealed class SophonDownloadService : IDisposable
 
             if (categoryPaths.Count == 0)
             {
-                unavailableCategories.Add(
-                    $"{option.Category.category_id} ({matchingField}; no changed or added files)");
+                unavailableCategories.Add($"{option.Category.category_id} ({matchingField}; no changed or added files)");
                 Logger.Warn(
                     $"No patch files are applicable to this category. Game={game.GameId}; " +
                     $"Category={option.Category.category_id}; From={fromManifest.data.tag}; " +
@@ -336,14 +319,13 @@ public sealed class SophonDownloadService : IDisposable
             return exact;
 
         List<ManifestCategory> matching = manifest.data.manifests
-            .Where(item => string.Equals(
-                item.matching_field, matchingField, StringComparison.OrdinalIgnoreCase))
+            .Where(item => string.Equals(item.matching_field, matchingField, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         return matching.Count == 1 ? matching[0] : null;
     }
 
-    private static async Task<(SophonChunkManifest Manifest, byte[] CompressedBytes, string Url)>
+    private static async Task<(SophonChunkManifest Manifest, string Url)>
         DownloadChunkManifestAsync(ManifestCategory category, CancellationToken cancellationToken)
     {
         string url = Utility.EnsureTrailingSlash(category.manifest_download.url_prefix) + category.manifest.id;
@@ -351,7 +333,7 @@ public sealed class SophonDownloadService : IDisposable
         byte[] decompressed = DecompressZstd(compressed);
         using MemoryStream stream = new(decompressed);
         SophonChunkManifest manifest = Serializer.Deserialize<SophonChunkManifest>(stream);
-        return (manifest, compressed, url);
+        return (manifest, url);
     }
 
     private static SophonPatchManifest ParsePatchManifest(byte[] manifestBytes)
