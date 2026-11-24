@@ -1,20 +1,20 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 internal static class DistributionIntegrityGuard
 {
-    private const string ExpectedNoticeMarker = "SophonDownloader";
+    private const string ExpectedNoticeMarker = "Kitsune Sophon Downloader";
     private const string ExpectedOfficialMarker = "GesthosNetwork";
-    private const string ExpectedFreeMarker = "free software";
+    private const string ExpectedFreeMarker = "free-software";
 
     internal static void Verify()
     {
         try
         {
             Type? licenseViewType = typeof(DistributionIntegrityGuard).Assembly
-                .GetType("SophonDownloader.LicenseView", throwOnError: false);
+                .GetType("KitsuneSophonDownloader.LicenseView", throwOnError: false);
 
             MethodInfo? decoder = licenseViewType?.GetMethod(
                 "DecodeDistributionNotice", BindingFlags.Static | BindingFlags.NonPublic);

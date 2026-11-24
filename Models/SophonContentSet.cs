@@ -1,6 +1,6 @@
-using SophonDownloader;
+using KitsuneSophonDownloader;
 
-namespace SophonDownloader.Models;
+namespace KitsuneSophonDownloader.Models;
 
 public sealed class SophonContentSet
 {
@@ -10,6 +10,9 @@ public sealed class SophonContentSet
         new(StringComparer.OrdinalIgnoreCase);
 
     public List<SophonContentOption> SelectedContent { get; init; } = [];
+    public Dictionary<string, List<string>> ContentFilePaths { get; init; } =
+        new(StringComparer.OrdinalIgnoreCase);
+    public List<SophonManifestArtifact> ManifestFiles { get; init; } = [];
     public bool IsPatch { get; init; }
     public bool IsLdiffPatch { get; init; }
     public string? PatchFromVersion { get; init; }
@@ -30,4 +33,11 @@ public sealed class SophonContentSet
             .SelectMany(file => file.Chunks)
             .GroupBy(chunk => chunk.Id, StringComparer.OrdinalIgnoreCase)
             .Sum(group => group.First().CompressedSize);
+}
+
+public sealed class SophonManifestArtifact
+{
+    public string FileName { get; init; } = "";
+    public string SourceUrl { get; init; } = "";
+    public byte[] Data { get; init; } = [];
 }

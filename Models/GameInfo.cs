@@ -1,4 +1,4 @@
-namespace SophonDownloader.Models;
+namespace KitsuneSophonDownloader.Models;
 
 public sealed class GameInfo(string displayName, string gameId, string region)
 {

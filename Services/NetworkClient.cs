@@ -1,4 +1,4 @@
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 internal static class NetworkClient
 {

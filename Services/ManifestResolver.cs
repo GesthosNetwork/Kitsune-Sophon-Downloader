@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
-using SophonDownloader.Models;
+using KitsuneSophonDownloader.Models;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public static class ManifestResolver
 {

@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
-using SophonDownloader.Utilities;
+using KitsuneSophonDownloader.Utilities;
 
-namespace SophonDownloader.Models;
+namespace KitsuneSophonDownloader.Models;
 
 public sealed class SophonExplorerNode : INotifyPropertyChanged
 {

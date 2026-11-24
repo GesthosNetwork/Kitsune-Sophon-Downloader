@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace SophonDownloader.Utilities;
+namespace KitsuneSophonDownloader.Utilities;
 
 public static class Utility
 {
@@ -15,6 +15,41 @@ public static class Utility
             throw new InvalidOperationException("Unable to determine the application directory.");
 
         return Path.GetFullPath(directory);
+    }
+
+    public static string ResolveApplicationPath(string? path)
+    {
+        string candidate = (path ?? string.Empty).Trim().Trim('"');
+        if (candidate.Length == 0)
+            return string.Empty;
+
+        candidate = Environment.ExpandEnvironmentVariables(candidate);
+        string combined = Path.IsPathRooted(candidate)
+            ? candidate
+            : Path.Combine(GetApplicationDirectory(), candidate);
+
+        return Path.GetFullPath(combined);
+    }
+
+    public static string ToApplicationRelativePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return string.Empty;
+
+        string fullPath = ResolveApplicationPath(path);
+        string applicationDirectory = Path.TrimEndingDirectorySeparator(GetApplicationDirectory());
+        string relativePath = Path.GetRelativePath(applicationDirectory, fullPath);
+
+        if (relativePath == ".")
+            return $".{Path.DirectorySeparatorChar}";
+
+        string parentPrefix = $"..{Path.DirectorySeparatorChar}";
+        if (Path.IsPathRooted(relativePath) ||
+            relativePath == ".." ||
+            relativePath.StartsWith(parentPrefix, StringComparison.Ordinal))
+            return fullPath;
+
+        return $".{Path.DirectorySeparatorChar}{relativePath}";
     }
 
     public static async Task<string> CalculateMd5Async(Stream stream)

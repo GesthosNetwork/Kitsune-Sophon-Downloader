@@ -1,9 +1,9 @@
-using SophonDownloader.Services;
+using KitsuneSophonDownloader.Services;
 using System.Text.RegularExpressions;
 using System.Windows.Documents;
 
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 public partial class UpdateView : UserControl
 {

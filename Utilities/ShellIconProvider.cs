@@ -2,7 +2,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 
-namespace SophonDownloader.Utilities;
+namespace KitsuneSophonDownloader.Utilities;
 
 public static class ShellIconProvider
 {

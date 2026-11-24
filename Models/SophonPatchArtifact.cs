@@ -1,6 +1,6 @@
-using SophonDownloader;
+using KitsuneSophonDownloader;
 
-namespace SophonDownloader.Models;
+namespace KitsuneSophonDownloader.Models;
 
 public sealed class SophonPatchArtifact
 {

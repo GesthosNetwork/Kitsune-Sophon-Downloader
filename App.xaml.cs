@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 public partial class App : Application
 {
@@ -23,7 +23,8 @@ public partial class App : Application
         catch (Exception ex)
         {
             LogManager.GlobalThreshold = NLog.LogLevel.Debug;
-            try { Logger.Warn(ex, "Failed to apply configured log level; falling back to Debug."); } catch {}
+            try { Logger.Warn(ex, "Failed to apply configured log level; falling back to Debug."); }
+            catch {}
         }
     }
 
@@ -37,7 +38,7 @@ public partial class App : Application
                 if (!AllocConsole())
                     throw new InvalidOperationException("AllocConsole failed.");
 
-                Console.Title = "SophonDownloader Diagnostics";
+                Console.Title = "Kitsune Sophon Downloader Diagnostics";
                 Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
                 Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
                 LogManager.ReconfigExistingLoggers();
@@ -75,7 +76,7 @@ public partial class App : Application
             AppSettings startupSettings = AppSettingsStore.Load();
             ApplyLogLevel(startupSettings.LogLevel);
             ApplyConsoleSetting(startupSettings.ShowConsole);
-            Logger.Info($"SophonDownloader starting. Version {Version}. CPU={Environment.ProcessorCount}, DefaultThreads={ConcurrencyDefaults.Threads}, DefaultHttpConnections={ConcurrencyDefaults.MaxHttpConnections}, LogLevel={startupSettings.LogLevel}.");
+            Logger.Info($"KitsuneSophonDownloader starting. Version {Version}. CPU={Environment.ProcessorCount}, DefaultThreads={ConcurrencyDefaults.Threads}, DefaultHttpConnections={ConcurrencyDefaults.MaxHttpConnections}, LogLevel={startupSettings.LogLevel}.");
             DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
@@ -89,7 +90,7 @@ public partial class App : Application
         {
             Logger.Fatal(ex, "Fatal application startup error.");
             LogManager.Flush();
-            MessageBox.Show($"SophonDownloader failed to start.\n\nType:\n{ex.GetType().FullName}\n\nMessage:\n{ex.Message}\n\nDetails:\n{ex}", "SophonDownloader - Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show($"Kitsune Sophon Downloader failed to start.\n\nType:\n{ex.GetType().FullName}\n\nMessage:\n{ex.Message}\n\nDetails:\n{ex}", "Kitsune Sophon Downloader - Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }
@@ -98,7 +99,7 @@ public partial class App : Application
     {
         try
         {
-            Logger.Info($"SophonDownloader shutting down. Exit code: {e.ApplicationExitCode}");
+            Logger.Info($"KitsuneSophonDownloader shutting down. Exit code: {e.ApplicationExitCode}");
             LogManager.Flush();
             LogManager.Shutdown();
         }
@@ -118,7 +119,7 @@ public partial class App : Application
             return;
         }
 
-        MessageBox.Show($"An unexpected application error occurred.\n\n{e.Exception}", "SophonDownloader - Runtime Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        MessageBox.Show($"An unexpected application error occurred.\n\n{e.Exception}", "Kitsune Sophon Downloader - Runtime Error", MessageBoxButton.OK, MessageBoxImage.Error);
 
         e.Handled = true;
     }

@@ -1,6 +1,6 @@
 using System.ComponentModel;
 
-namespace SophonDownloader.Models;
+namespace KitsuneSophonDownloader.Models;
 
 public sealed class LegacyContentOption : INotifyPropertyChanged
 {

@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 internal sealed class DownloadHistoryStore
 {
@@ -35,7 +35,7 @@ internal sealed class DownloadHistoryStore
                     game_region TEXT NULL,
                     version TEXT NULL,
                     channel TEXT NULL,
-                    delete_chunks_after_extraction INTEGER NOT NULL,
+                    delete_chunks_after_extraction INTEGER NOT NULL DEFAULT 0,
                     selected_category_ids TEXT NOT NULL,
                     selected_content_names TEXT NOT NULL DEFAULT '',
                     legacy_explorer_archives_json TEXT NULL,
@@ -69,8 +69,7 @@ internal sealed class DownloadHistoryStore
         command.CommandText = """
             SELECT type, title, destination_directory, legacy_urls,
                    game_id, game_display_name, game_region, version, channel,
-                   delete_chunks_after_extraction, selected_category_ids,
-                   selected_content_names, patch_from_version,
+                   selected_category_ids, selected_content_names, patch_from_version,
                    legacy_explorer_archives_json, legacy_explorer_selected_paths,
                    sophon_selected_file_paths, state, status_message
             FROM download_history
@@ -92,15 +91,14 @@ internal sealed class DownloadHistoryStore
                 GameRegion = ReadNullableString(reader, 6),
                 Version = ReadNullableString(reader, 7),
                 Channel = ReadNullableString(reader, 8),
-                DeleteChunksAfterExtraction = reader.GetInt32(9) != 0,
-                SelectedCategoryIds = ReadStringList(reader.GetString(10)),
-                SelectedContentNames = ReadStringList(reader.GetString(11)),
-                PatchFromVersion = ReadNullableString(reader, 12),
-                LegacyExplorerArchivesJson = ReadNullableString(reader, 13),
-                LegacyExplorerSelectedPaths = ReadStringList(reader.GetString(14)),
-                SophonSelectedFilePaths = ReadStringList(reader.GetString(15)),
-                State = reader.GetInt32(16),
-                StatusMessage = ReadNullableString(reader, 17)
+                SelectedCategoryIds = ReadStringList(reader.GetString(9)),
+                SelectedContentNames = ReadStringList(reader.GetString(10)),
+                PatchFromVersion = ReadNullableString(reader, 11),
+                LegacyExplorerArchivesJson = ReadNullableString(reader, 12),
+                LegacyExplorerSelectedPaths = ReadStringList(reader.GetString(13)),
+                SophonSelectedFilePaths = ReadStringList(reader.GetString(14)),
+                State = reader.GetInt32(15),
+                StatusMessage = ReadNullableString(reader, 16)
             });
         }
 
@@ -152,7 +150,7 @@ internal sealed class DownloadHistoryStore
             (
                 $type, $title, $destination_directory, $legacy_urls,
                 $game_id, $game_display_name, $game_region, $version, $channel,
-                $delete_chunks_after_extraction, $selected_category_ids,
+                0, $selected_category_ids,
                 $selected_content_names, $patch_from_version,
                 $legacy_explorer_archives_json, $legacy_explorer_selected_paths,
                 $sophon_selected_file_paths, $state, $status_message
@@ -168,7 +166,6 @@ internal sealed class DownloadHistoryStore
         AddParameter(command, "$game_region", entry.GameRegion);
         AddParameter(command, "$version", entry.Version);
         AddParameter(command, "$channel", entry.Channel);
-        AddParameter(command, "$delete_chunks_after_extraction", entry.DeleteChunksAfterExtraction ? 1 : 0);
         AddParameter(command, "$selected_category_ids", WriteStringList(entry.SelectedCategoryIds));
         AddParameter(command, "$selected_content_names", WriteStringList(entry.SelectedContentNames));
         AddParameter(command, "$patch_from_version", entry.PatchFromVersion);
@@ -221,7 +218,6 @@ internal sealed class DownloadHistoryEntry
     public string? GameRegion { get; init; }
     public string? Version { get; init; }
     public string? Channel { get; init; }
-    public bool DeleteChunksAfterExtraction { get; init; }
     public List<string> SelectedCategoryIds { get; init; } = [];
     public List<string> SelectedContentNames { get; init; } = [];
     public string? PatchFromVersion { get; init; }

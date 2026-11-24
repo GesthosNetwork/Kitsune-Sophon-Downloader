@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public enum DownloadErrorType
 {
@@ -246,14 +246,17 @@ public sealed class DownloadService : IDisposable
                 },
                 ariaProgress =>
                 {
+                    long currentFileBytes = ariaProgress.BytesReceived.GetValueOrDefault();
                     long currentTotal = ariaProgress.TotalBytes ?? totalBytes ?? 0;
                     if (currentTotal > 0)
                         RegisterLegacyFileTotal(fileIndex, currentTotal);
 
                     ReportLegacyAggregateProgress(
-                        fileName, fileIndex, fileCount, ariaProgress.BytesReceived, ariaProgress.TotalBytes ?? totalBytes,
-                        ariaProgress.Percent ?? CalculatePercent(ariaProgress.BytesReceived, ariaProgress.TotalBytes ?? totalBytes),
-                        progress, false);
+                        fileName, fileIndex, fileCount, currentFileBytes, ariaProgress.TotalBytes ?? totalBytes,
+                        ariaProgress.Percent ?? CalculatePercent(currentFileBytes, ariaProgress.TotalBytes ?? totalBytes),
+                        progress, false,
+                        reportedSpeedBytesPerSecond: ariaProgress.SpeedBytesPerSecond,
+                        reportedEta: ariaProgress.Eta);
                 },
                 ct,
                 Math.Clamp(AppSettingsStore.Load().MaxHttpHandle, 1, 256),
@@ -574,7 +577,8 @@ public sealed class DownloadService : IDisposable
 
     private void ReportLegacyAggregateProgress(
         string fileName, int fileIndex, int fileCount, long currentFileAvailableBytes, long? currentFileTotalBytes,
-        double? currentFilePercent, IProgress<DownloadProgressInfo> progress, bool force)
+        double? currentFilePercent, IProgress<DownloadProgressInfo> progress, bool force,
+        long? reportedSpeedBytesPerSecond = null, TimeSpan? reportedEta = null)
     {
         UnifiedTransferMetricsSnapshot metrics;
         long aggregateAvailable;
@@ -604,13 +608,35 @@ public sealed class DownloadService : IDisposable
             ? Math.Clamp(metrics.AvailableBytes * 100d / aggregateTotal, 0, 100)
             : currentFilePercent;
 
+        long sampledSpeed = (long)Math.Clamp(metrics.SpeedBytesPerSecond, 0, long.MaxValue);
+        long effectiveSpeed = reportedSpeedBytesPerSecond is > 0
+            ? reportedSpeedBytesPerSecond.Value
+            : sampledSpeed;
+
+        TimeSpan? effectiveEta = reportedSpeedBytesPerSecond is > 0
+            ? reportedEta
+            : metrics.Eta;
+
+        long remainingForEta = metrics.RemainingBytes;
+        if (remainingForEta <= 0 && currentFileTotalBytes is > 0)
+        {
+            remainingForEta = Math.Max(0, currentFileTotalBytes.Value - Math.Max(0, currentFileAvailableBytes));
+        }
+
+        if (!effectiveEta.HasValue && effectiveSpeed > 0 && remainingForEta > 0)
+        {
+            double etaSeconds = remainingForEta / (double)effectiveSpeed;
+            if (double.IsFinite(etaSeconds) && etaSeconds >= 0 && etaSeconds <= TimeSpan.MaxValue.TotalSeconds)
+                effectiveEta = TimeSpan.FromSeconds(etaSeconds);
+        }
+
         progress.Report(new DownloadProgressInfo
         {
             BytesReceived = metrics.AvailableBytes,
             TotalBytes = aggregateTotal > 0 ? aggregateTotal : currentFileTotalBytes,
             Percent = aggregatePercent,
-            SpeedBytesPerSecond = (long)Math.Clamp(metrics.SpeedBytesPerSecond, 0, long.MaxValue),
-            Eta = metrics.Eta,
+            SpeedBytesPerSecond = effectiveSpeed,
+            Eta = effectiveEta,
             FileName = fileName,
             FileIndex = fileIndex,
             FileCount = fileCount

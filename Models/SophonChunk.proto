@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option csharp_namespace = "SophonDownloader";
+option csharp_namespace = "KitsuneSophonDownloader";
 
 message SophonChunk {
     string id = 1;

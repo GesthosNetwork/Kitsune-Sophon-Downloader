@@ -1,6 +1,6 @@
-using SophonDownloader.Models;
+using KitsuneSophonDownloader.Models;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public interface ILdiffMetadataProvider
 {
@@ -8,12 +8,13 @@ public interface ILdiffMetadataProvider
         GameInfo game,
         string targetVersion,
         string matchingField,
+        string categoryId,
         string fromVersion,
         CancellationToken cancellationToken = default);
 }
 
 public sealed record LdiffSource(
-    string DiffListUrl,
+    string DiffChunkUrlPrefix,
     string DiffManifestUrl,
     string? Language);
 
@@ -28,6 +29,7 @@ public sealed class LdiffMetadataProvider : ILdiffMetadataProvider
         GameInfo game,
         string targetVersion,
         string matchingField,
+        string categoryId,
         string fromVersion,
         CancellationToken cancellationToken = default)
     {
@@ -65,31 +67,83 @@ public sealed class LdiffMetadataProvider : ILdiffMetadataProvider
         JsonElement diffContainer =
             ResolveDiffContainer(versionEntry, categoryUrlKey);
 
-        JsonElement diffEntry = diffContainer
+        string? requestedLanguage = ResolveLanguage(matchingField);
+        List<JsonElement> candidates = diffContainer
             .GetProperty("diff")
             .EnumerateArray()
-            .FirstOrDefault(x =>
-                string.Equals(
-                    x.GetProperty("original_version").GetString(),
-                    fromVersion, StringComparison.OrdinalIgnoreCase) &&
-                (!x.TryGetProperty(
-                    "language", out JsonElement language) ||
-                 string.Equals(
-                    language.GetString(),
-                    ResolveLanguage(matchingField),
-                    StringComparison.OrdinalIgnoreCase)));
+            .Where(x => MatchesVersionAndLanguage(x, fromVersion, requestedLanguage))
+            .ToList();
 
-        if (diffEntry.ValueKind == JsonValueKind.Undefined ||
-            !diffEntry.TryGetProperty(
-                "file_url", out JsonElement manifestUrlElement))
+        if (candidates.Count == 0)
+            return null;
+
+        JsonElement diffEntry = candidates.FirstOrDefault(x =>
+            HasCategoryPath(x, categoryId));
+
+        if (diffEntry.ValueKind == JsonValueKind.Undefined)
+        {
+            if (candidates.Count != 1)
+                return null;
+
+            diffEntry = candidates[0];
+        }
+
+        if (!diffEntry.TryGetProperty("file_url", out JsonElement manifestUrlElement))
             return null;
 
         string? diffManifestUrl = manifestUrlElement.GetString();
         if (string.IsNullOrWhiteSpace(diffManifestUrl))
             return null;
 
-        return new LdiffSource(diffListUrl, diffManifestUrl, ResolveLanguage(matchingField));
+        string? chunkUrlPrefix = TryGetString(diffEntry, "file_path");
+        if (string.IsNullOrWhiteSpace(chunkUrlPrefix))
+            chunkUrlPrefix = diffListUrl;
+
+        if (string.IsNullOrWhiteSpace(chunkUrlPrefix) ||
+            !Uri.TryCreate(chunkUrlPrefix, UriKind.Absolute, out Uri? chunkUri) ||
+            (chunkUri.Scheme != Uri.UriSchemeHttp && chunkUri.Scheme != Uri.UriSchemeHttps))
+            return null;
+
+        return new LdiffSource(
+            EnsureTrailingSlash(chunkUrlPrefix), diffManifestUrl, requestedLanguage);
     }
+
+    private static bool MatchesVersionAndLanguage(
+        JsonElement diffEntry, string fromVersion, string? requestedLanguage)
+    {
+        if (!string.Equals(
+                TryGetString(diffEntry, "original_version"),
+                fromVersion, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        string? entryLanguage = TryGetString(diffEntry, "language");
+        return requestedLanguage is null
+            ? string.IsNullOrWhiteSpace(entryLanguage)
+            : string.Equals(entryLanguage, requestedLanguage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasCategoryPath(JsonElement diffEntry, string categoryId)
+    {
+        if (string.IsNullOrWhiteSpace(categoryId))
+            return false;
+
+        string? filePath = TryGetString(diffEntry, "file_path");
+        if (string.IsNullOrWhiteSpace(filePath))
+            return false;
+
+        string path = filePath.TrimEnd('/', '\\');
+        string leaf = path[(Math.Max(path.LastIndexOf('/'), path.LastIndexOf('\\')) + 1)..];
+        return string.Equals(leaf, categoryId.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryGetString(JsonElement element, string propertyName) =>
+        element.TryGetProperty(propertyName, out JsonElement value) &&
+        value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static string EnsureTrailingSlash(string value) =>
+        value.EndsWith('/') ? value : value + "/";
 
     private static async Task<JsonDocument> LoadRepositoryManifestAsync(
         string gameId, CancellationToken cancellationToken)
@@ -140,15 +194,17 @@ public sealed class LdiffMetadataProvider : ILdiffMetadataProvider
         return versionEntry.GetProperty("audio");
     }
 
-    private static string? ResolveLanguage(string matchingField) =>
-        matchingField.Trim().ToLowerInvariant() switch
-        {
-            "en-us" or "en_us" => "en-us",
-            "zh-cn" or "zh_cn" => "zh-cn",
-            "ja-jp" or "ja_jp" => "ja-jp",
-            "ko-kr" or "ko_kr" => "ko-kr",
-            _ => null
-        };
+    private static string? ResolveLanguage(string matchingField)
+    {
+        string normalized = matchingField.Trim().ToLowerInvariant().Replace('_', '-');
+
+        if (normalized.Contains("en-us", StringComparison.Ordinal)) return "en-us";
+        if (normalized.Contains("zh-cn", StringComparison.Ordinal)) return "zh-cn";
+        if (normalized.Contains("ja-jp", StringComparison.Ordinal)) return "ja-jp";
+        if (normalized.Contains("ko-kr", StringComparison.Ordinal)) return "ko-kr";
+
+        return null;
+    }
 
     private static async Task<JsonDocument> LoadJsonAsync(
         string url, CancellationToken cancellationToken)

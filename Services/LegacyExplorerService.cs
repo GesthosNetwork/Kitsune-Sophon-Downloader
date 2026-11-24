@@ -1,10 +1,10 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
-using SophonDownloader.Models;
+using KitsuneSophonDownloader.Models;
 using SharpCompress.Archives;
 using SharpCompress.Archives.SevenZip;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public sealed class LegacyExplorerArchive(
     string code, string name, IReadOnlyList<string> urls)

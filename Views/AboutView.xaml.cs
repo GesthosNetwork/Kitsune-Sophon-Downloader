@@ -1,6 +1,6 @@
 using System.Windows.Navigation;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 public partial class AboutView : UserControl
 {

@@ -1,9 +1,9 @@
 using System.Windows.Controls.Primitives;
-using SophonDownloader.Models;
-using SophonDownloader.Services;
-using SophonDownloader.Utilities;
+using KitsuneSophonDownloader.Models;
+using KitsuneSophonDownloader.Services;
+using KitsuneSophonDownloader.Utilities;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 public partial class SophonExplorerView : UserControl
 {
@@ -305,7 +305,20 @@ public partial class SophonExplorerView : UserControl
     private void UpdateSelectionSummary()
     {
         List<SophonExplorerNode> selected = GetSelectedFiles();
-        long bytes = selected.Sum(x => x.Size);
+        long bytes;
+
+        if (_content?.IsPatch == true)
+        {
+            bytes = selected
+                .SelectMany(file => file.Chunks)
+                .Where(chunk => !string.IsNullOrWhiteSpace(chunk.Id))
+                .GroupBy(chunk => chunk.Id, StringComparer.OrdinalIgnoreCase)
+                .Sum(group => group.First().CompressedSize);
+        }
+        else
+        {
+            bytes = selected.Sum(file => file.Size);
+        }
 
         SelectionSummaryText.Text = $"{selected.Count:N0} files selected • {Utility.FormatCompactFileSize(bytes)}";
         DownloadSelectedButton.IsEnabled = _explorerContentLoaded && selected.Count > 0;
@@ -400,8 +413,31 @@ public partial class SophonExplorerView : UserControl
 
         try
         {
-            _downloadsView.AddSophonExplorerDownload(
-                _game, _version, _channel, _content.SelectedContent, selectedPaths, saveDirectory, patchFromVersion: _patchFromVersion);
+            int queuedJobs = 0;
+            foreach (SophonContentOption option in _content.SelectedContent)
+            {
+                if (!_content.ContentFilePaths.TryGetValue(option.Category.category_id, out List<string>? categoryPaths))
+                    continue;
+
+                HashSet<string> categoryPathSet = categoryPaths
+                    .Select(NormalizePath)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                List<string> categorySelectedPaths = selectedPaths
+                    .Where(categoryPathSet.Contains)
+                    .ToList();
+
+                if (categorySelectedPaths.Count == 0)
+                    continue;
+
+                _downloadsView.AddSophonExplorerDownload(
+                    _game, _version, _channel, [option], categorySelectedPaths, saveDirectory,
+                    patchFromVersion: _patchFromVersion);
+                queuedJobs++;
+            }
+
+            if (queuedJobs == 0)
+                throw new InvalidOperationException("The selected files could not be mapped back to their Sophon content categories.");
 
             _showDownloadQueue();
             RequestClose();

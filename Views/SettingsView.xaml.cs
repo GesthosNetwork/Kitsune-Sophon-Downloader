@@ -1,11 +1,11 @@
 using System.Windows.Threading;
 using Microsoft.Win32;
+using KitsuneSophonDownloader.Utilities;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 public partial class SettingsView : UserControl
 {
-    private string _backgroundImagePath = string.Empty;
     private bool _isLoadingSettings = true;
     private readonly DispatcherTimer _autoSaveTimer;
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
@@ -48,7 +48,7 @@ public partial class SettingsView : UserControl
         ProxyHost = ProxyHostTextBox.Text.Trim(),
         ProxyPort = ParseInt(ProxyPortTextBox.Text, 8080, 1, 65535),
         Dns = DnsTextBox.Text.Trim(),
-        BackgroundImagePath = _backgroundImagePath.Trim(),
+        BackgroundImagePath = BackgroundImageTextBox.Text.Trim(),
         ShowConsole = ShowConsoleCheckBox.IsChecked == true,
         LogLevel = (LogLevelComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Debug"
     };
@@ -81,8 +81,15 @@ public partial class SettingsView : UserControl
         ProxyPortTextBox.Text = settings.ProxyPort.ToString();
         DnsTextBox.Text = settings.Dns;
 
-        _backgroundImagePath = settings.BackgroundImagePath ?? string.Empty;
-        BackgroundImageTextBox.Text = _backgroundImagePath;
+        try
+        {
+            BackgroundImageTextBox.Text = Utility.ToApplicationRelativePath(settings.BackgroundImagePath);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Unable to normalize the saved background image path. Keeping the original value.");
+            BackgroundImageTextBox.Text = settings.BackgroundImagePath ?? string.Empty;
+        }
         ShowConsoleCheckBox.IsChecked = settings.ShowConsole;
 
         SelectItem(LogLevelComboBox, settings.LogLevel, "Debug");
@@ -288,6 +295,28 @@ public partial class SettingsView : UserControl
         SaveCurrentSettings();
     }
 
+    private void BackgroundImageTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        QueueAutoSave();
+    }
+
+    private void BackgroundImageTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(BackgroundImageTextBox.Text))
+            return;
+
+        try
+        {
+            string compactPath = Utility.ToApplicationRelativePath(BackgroundImageTextBox.Text);
+            if (!string.Equals(BackgroundImageTextBox.Text, compactPath, StringComparison.Ordinal))
+                BackgroundImageTextBox.Text = compactPath;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Unable to normalize the background image path for display.");
+        }
+    }
+
     private void BrowseBackgroundButton_Click(
         object sender, RoutedEventArgs e)
     {
@@ -302,15 +331,13 @@ public partial class SettingsView : UserControl
         if (dialog.ShowDialog() != true)
             return;
 
-        _backgroundImagePath = dialog.FileName;
-        BackgroundImageTextBox.Text = _backgroundImagePath;
+        BackgroundImageTextBox.Text = Utility.ToApplicationRelativePath(dialog.FileName);
         ApplyThemeImmediately("Background updated");
     }
 
     private void ClearBackgroundButton_Click(
         object sender, RoutedEventArgs e)
     {
-        _backgroundImagePath = string.Empty;
         BackgroundImageTextBox.Clear();
         ApplyThemeImmediately("Background cleared");
     }

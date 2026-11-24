@@ -1,4 +1,4 @@
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public readonly record struct UnifiedTransferMetricsSnapshot(
     double SpeedBytesPerSecond, TimeSpan? Eta,
@@ -11,7 +11,7 @@ public sealed class UnifiedTransferMetrics
     private const double EtaSmoothingFactor = 0.25;
     private const long PublishIntervalMilliseconds = 250;
     private const long SpeedWindowMilliseconds = 5000;
-    private const long ResetAfterIdleMilliseconds = 3500;
+    private const long ResetAfterIdleMilliseconds = 5000;
 
     private readonly object _lock = new();
     private readonly Queue<(long Time, long Bytes)> _samples = new();
@@ -73,7 +73,7 @@ public sealed class UnifiedTransferMetrics
                     long elapsed = now - oldest.Time;
                     long delta = transferredBytes - oldest.Bytes;
 
-                    if (elapsed >= 1000 && delta > 0)
+                    if (elapsed >= 500 && delta > 0)
                     {
                         double rawSpeed = delta * 1000d / elapsed;
                         if (IsFinitePositive(rawSpeed))

@@ -1,11 +1,11 @@
 using ProtoBuf;
-using SophonDownloader;
-using SophonDownloader.Core;
-using SophonDownloader.Models;
-using SophonDownloader.Utilities;
+using KitsuneSophonDownloader;
+using KitsuneSophonDownloader.Core;
+using KitsuneSophonDownloader.Models;
+using KitsuneSophonDownloader.Utilities;
 using ZstdSharp;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public sealed class SophonDownloadService : IDisposable
 {
@@ -35,12 +35,8 @@ public sealed class SophonDownloadService : IDisposable
     }
 
     private string JobContext => $"Job={_logJobId}; Title=\"{_logJobTitle}\"";
-    private bool _chunkDownloadCompletedPending;
     private bool _chunkDownloadCancelledPending;
-    private bool _extractionCompletedPending;
-    private bool _extractionCancelledPending;
     private bool _chunkDownloadRunning;
-    private bool _extractionRunning;
 
     public ManifestConfig? CurrentManifest => _currentManifest;
     public SophonContentSet? CurrentContent => _currentContent;
@@ -48,11 +44,7 @@ public sealed class SophonDownloadService : IDisposable
     public bool IsPaused => _downloader.IsPaused;
 
     public Action<ChunkDownloadProgress>? ChunkProgressCallback { get; set; }
-    public Action<ExtractionProgress>? ExtractionProgressCallback { get; set; }
-    public Action? ChunkDownloadCompletedCallback { get; set; }
-    public Action? ExtractionCompletedCallback { get; set; }
     public Action? DownloadCancelledCallback { get; set; }
-    public Action? ExtractionCancelledCallback { get; set; }
 
     public SophonDownloadService()
     {
@@ -81,8 +73,7 @@ public sealed class SophonDownloadService : IDisposable
             string.Equals(version, branchData.tag, StringComparison.OrdinalIgnoreCase);
 
         string url = SophonGameService.BuildGetBuildUrl(
-            game.GameId, game.Region,
-            branchData.package_id, branchData.password,
+            game.GameId, game.Region, branchData.package_id, branchData.password,
             useLatestPreDownloadTag ? null : version, branch);
 
         Logger.Info($"Loading Sophon build manifest. {JobContext}; URL={url}");
@@ -109,8 +100,7 @@ public sealed class SophonDownloadService : IDisposable
         return config;
     }
 
-    public IReadOnlyList<SophonContentOption> BuildContentOptions(
-        ManifestConfig manifest)
+    public IReadOnlyList<SophonContentOption> BuildContentOptions(ManifestConfig manifest)
     {
         ThrowIfDisposed();
 
@@ -135,6 +125,10 @@ public sealed class SophonDownloadService : IDisposable
 
         var allFiles = new List<SophonChunkFile>();
         var fileManifest = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var manifestFiles = new List<SophonManifestArtifact>();
+        var contentFilePaths = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var loadedContent = new List<SophonContentOption>();
+        var unavailableCategories = new List<string>();
 
         foreach (SophonContentOption option in selectedList)
         {
@@ -146,85 +140,172 @@ public sealed class SophonDownloadService : IDisposable
                     $"Sophon category '{option.Category.category_id}' does not provide a matching field.");
 
             LdiffSource? source = await _ldiffMetadataProvider.ResolveAsync(
-                game,
-                toManifest.data.tag,
-                matchingField,
-                fromManifest.data.tag,
-                cancellationToken);
+                game, toManifest.data.tag, matchingField, option.Category.category_id,
+                fromManifest.data.tag, cancellationToken);
 
-            if (source is null)
+            var categoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int patchArtifactCount = 0;
+
+            if (source is not null)
             {
-                throw new InvalidOperationException(
-                    $"No native LDiff metadata was found for {game.GameId} " +
-                    $"({matchingField}) {fromManifest.data.tag} → {toManifest.data.tag}.");
-            }
+                Logger.Info(
+                    $"Loading LDiff manifest. Game={game.GameId}, Package={matchingField}, " +
+                    $"Category={option.Category.category_id}, From={fromManifest.data.tag}, " +
+                    $"To={toManifest.data.tag}, URL={source.DiffManifestUrl}");
 
-            Logger.Info(
-                $"Loading LDiff manifest. Game={game.GameId}, Package={matchingField}, " +
-                $"From={fromManifest.data.tag}, To={toManifest.data.tag}, URL={source.DiffManifestUrl}");
-
-            byte[] manifestBytes = await DownloadBytesAsync(source.DiffManifestUrl, cancellationToken);
-            SophonPatchManifest patchManifest;
-            try
-            {
-                using MemoryStream direct = new(manifestBytes);
-                patchManifest = Serializer.Deserialize<SophonPatchManifest>(direct);
-                if (patchManifest.Patches.Count == 0)
-                    throw new InvalidDataException("Direct LDiff protobuf was empty.");
-            }
-            catch
-            {
-                byte[] decompressedManifest = DecompressZstd(manifestBytes);
-                using MemoryStream decompressed = new(decompressedManifest);
-                patchManifest = Serializer.Deserialize<SophonPatchManifest>(decompressed);
-            }
-
-            foreach (SophonPatchFile patchFile in patchManifest.Patches)
-            {
-                SophonPatchInfo? patchInfo = patchFile.Patches.FirstOrDefault(x =>
-                    string.Equals(x.Tag, fromManifest.data.tag, StringComparison.OrdinalIgnoreCase));
-
-                if (patchInfo?.Patch is null || string.IsNullOrWhiteSpace(patchInfo.Patch.Id))
-                    continue;
-
-                SophonPatch patch = patchInfo.Patch;
-                string outputFile = BuildPatchArtifactPath(patchFile.File, patch.OriginalFileName);
-
-                var artifact = new SophonChunkFile
+                byte[] diffManifestBytes = await DownloadBytesAsync(source.DiffManifestUrl, cancellationToken);
+                manifestFiles.Add(new SophonManifestArtifact
                 {
-                    File = outputFile,
-                    IsFolder = false,
-                    Size = patch.PatchFileSize,
-                    Md5 = patch.PatchFileMd5
-                };
-
-                artifact.Chunks.Add(new SophonChunk
-                {
-                    Id = patch.Id,
-                    CompressedSize = patch.PatchFileSize,
-                    CompressedMd5 = patch.PatchFileMd5 ?? string.Empty,
-                    UncompressedSize = patch.PatchFileSize,
-                    UncompressedMd5 = patch.PatchFileMd5 ?? string.Empty,
-                    Offset = 0
+                    FileName = GetUrlFileName(source.DiffManifestUrl),
+                    SourceUrl = source.DiffManifestUrl,
+                    Data = diffManifestBytes
                 });
 
-                if (allFiles.Any(x => x.Chunks.Any(c =>
-                        string.Equals(c.Id, patch.Id, StringComparison.OrdinalIgnoreCase))))
+                SophonPatchManifest patchManifest = ParsePatchManifest(diffManifestBytes);
+
+                foreach (SophonPatchFile patchFile in patchManifest.Patches)
+                {
+                    SophonPatchInfo? patchInfo = patchFile.Patches.FirstOrDefault(x =>
+                        string.Equals(x.Tag, fromManifest.data.tag, StringComparison.OrdinalIgnoreCase));
+
+                    if (patchInfo?.Patch is null || string.IsNullOrWhiteSpace(patchInfo.Patch.Id))
+                        continue;
+
+                    SophonPatch patch = patchInfo.Patch;
+                    string outputFile = BuildPatchArtifactPath(patchFile.File, patch.OriginalFileName);
+                    categoryPaths.Add(outputFile);
+
+                    var artifact = new SophonChunkFile
+                    {
+                        File = outputFile,
+                        IsFolder = false,
+                        Size = patch.PatchFileSize,
+                        Md5 = patch.PatchFileMd5
+                    };
+
+                    artifact.Chunks.Add(new SophonChunk
+                    {
+                        Id = patch.Id,
+                        CompressedSize = patch.PatchFileSize,
+                        CompressedMd5 = patch.PatchFileMd5 ?? string.Empty,
+                        UncompressedSize = patch.PatchFileSize,
+                        UncompressedMd5 = patch.PatchFileMd5 ?? string.Empty,
+                        Offset = patch.PatchOffset
+                    });
+
+                    allFiles.Add(artifact);
+                    fileManifest[artifact.File] = source.DiffChunkUrlPrefix;
+                    patchArtifactCount++;
+                }
+            }
+            else
+            {
+                Logger.Warn(
+                    $"No category-specific LDiff manifest was found; checking the target manifest " +
+                    $"for full-file additions. Game={game.GameId}; Category={option.Category.category_id}; " +
+                    $"MatchingField={matchingField}; From={fromManifest.data.tag}; To={toManifest.data.tag}");
+            }
+
+            ManifestCategory targetCategory = FindManifestCategory(
+                toManifest, option.Category.category_id, matchingField);
+            ManifestCategory? sourceCategory = TryFindManifestCategory(
+                fromManifest, option.Category.category_id, matchingField);
+
+            HashSet<string> sourcePaths = new(StringComparer.OrdinalIgnoreCase);
+            int sourceFileCount = 0;
+            string sourceUrl = string.Empty;
+
+            if (sourceCategory is not null)
+            {
+                var sourceResult = await DownloadChunkManifestAsync(sourceCategory, cancellationToken);
+                SophonChunkManifest sourceChunkManifest = sourceResult.Manifest;
+                byte[] sourceBytes = sourceResult.CompressedBytes;
+                sourceUrl = sourceResult.Url;
+                sourceFileCount = sourceChunkManifest.Chuncks.Count;
+                sourcePaths = sourceChunkManifest.Chuncks
+                    .Where(file => !file.IsFolder && !string.IsNullOrWhiteSpace(file.File))
+                    .Select(file => NormalizeSophonPath(file.File))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                manifestFiles.Add(new SophonManifestArtifact
+                {
+                    FileName = GetUrlFileName(sourceUrl),
+                    SourceUrl = sourceUrl,
+                    Data = sourceBytes
+                });
+            }
+
+            (SophonChunkManifest targetChunkManifest, byte[] targetBytes, string targetUrl) =
+                await DownloadChunkManifestAsync(targetCategory, cancellationToken);
+
+            manifestFiles.Add(new SophonManifestArtifact
+            {
+                FileName = GetUrlFileName(targetUrl),
+                SourceUrl = targetUrl,
+                Data = targetBytes
+            });
+
+            var addedFiles = targetChunkManifest.Chuncks
+                .Where(file => !file.IsFolder && !string.IsNullOrWhiteSpace(file.File))
+                .Where(file => !sourcePaths.Contains(NormalizeSophonPath(file.File)))
+                .ToList();
+
+            string targetChunkPrefix = Utility.EnsureTrailingSlash(targetCategory.chunk_download.url_prefix);
+            int addedFileCount = 0;
+            foreach (SophonChunkFile targetFile in addedFiles)
+            {
+                string normalizedPath = NormalizeSophonPath(targetFile.File);
+                if (categoryPaths.Any(path => string.Equals(
+                        NormalizeSophonPath(path), normalizedPath, StringComparison.OrdinalIgnoreCase)))
                     continue;
 
-                allFiles.Add(artifact);
-                fileManifest[artifact.File] = Utility.EnsureTrailingSlash(source.DiffListUrl);
+                categoryPaths.Add(targetFile.File);
+                if (fileManifest.ContainsKey(targetFile.File))
+                    continue;
+
+                allFiles.Add(targetFile);
+                fileManifest[targetFile.File] = targetChunkPrefix;
+                addedFileCount++;
             }
+
+            if (categoryPaths.Count == 0)
+            {
+                unavailableCategories.Add(
+                    $"{option.Category.category_id} ({matchingField}; no changed or added files)");
+                Logger.Warn(
+                    $"No patch files are applicable to this category. Game={game.GameId}; " +
+                    $"Category={option.Category.category_id}; From={fromManifest.data.tag}; " +
+                    $"To={toManifest.data.tag}");
+                continue;
+            }
+
+            loadedContent.Add(option);
+            contentFilePaths[option.Category.category_id] = categoryPaths.ToList();
+
+            Logger.Info(
+                $"LDiff category resolved. Game={game.GameId}; Category={option.Category.category_id}; " +
+                $"SourceFiles={sourceFileCount:N0}; TargetFiles={targetChunkManifest.Chuncks.Count:N0}; " +
+                $"HdiffArtifacts={patchArtifactCount:N0}; AddedFullFiles={addedFileCount:N0}; " +
+                $"ExploreFiles={categoryPaths.Count:N0}; SourceManifest={sourceUrl}");
         }
 
         if (allFiles.Count == 0)
-            throw new InvalidOperationException($"No LDiff artifacts were found for {fromManifest.data.tag} → {toManifest.data.tag}.");
+        {
+            string details = unavailableCategories.Count == 0
+                ? string.Empty
+                : " Unavailable categories: " + string.Join(", ", unavailableCategories);
+            throw new InvalidOperationException(
+                $"No applicable LDiff artifacts or added files were found for " +
+                $"{fromManifest.data.tag} → {toManifest.data.tag}.{details}");
+        }
 
         var content = new SophonContentSet
         {
             AllFiles = allFiles,
             FileManifest = fileManifest,
-            SelectedContent = selectedList,
+            SelectedContent = loadedContent,
+            ManifestFiles = manifestFiles,
+            ContentFilePaths = contentFilePaths,
             IsPatch = true,
             IsLdiffPatch = true,
             PatchFromVersion = fromManifest.data.tag,
@@ -239,6 +320,58 @@ public sealed class SophonDownloadService : IDisposable
         return content;
     }
 
+    private static ManifestCategory FindManifestCategory(
+        ManifestConfig manifest, string categoryId, string matchingField) =>
+        TryFindManifestCategory(manifest, categoryId, matchingField)
+        ?? throw new InvalidDataException(
+            $"Manifest version '{manifest.data.tag}' does not contain category " +
+            $"'{categoryId}' (matching field '{matchingField}').");
+
+    private static ManifestCategory? TryFindManifestCategory(
+        ManifestConfig manifest, string categoryId, string matchingField)
+    {
+        ManifestCategory? exact = manifest.data.manifests.FirstOrDefault(item =>
+            string.Equals(item.category_id, categoryId, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+            return exact;
+
+        List<ManifestCategory> matching = manifest.data.manifests
+            .Where(item => string.Equals(
+                item.matching_field, matchingField, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        return matching.Count == 1 ? matching[0] : null;
+    }
+
+    private static async Task<(SophonChunkManifest Manifest, byte[] CompressedBytes, string Url)>
+        DownloadChunkManifestAsync(ManifestCategory category, CancellationToken cancellationToken)
+    {
+        string url = Utility.EnsureTrailingSlash(category.manifest_download.url_prefix) + category.manifest.id;
+        byte[] compressed = await DownloadBytesAsync(url, cancellationToken);
+        byte[] decompressed = DecompressZstd(compressed);
+        using MemoryStream stream = new(decompressed);
+        SophonChunkManifest manifest = Serializer.Deserialize<SophonChunkManifest>(stream);
+        return (manifest, compressed, url);
+    }
+
+    private static SophonPatchManifest ParsePatchManifest(byte[] manifestBytes)
+    {
+        byte[] payload = IsZstdFrame(manifestBytes)
+            ? DecompressZstd(manifestBytes)
+            : manifestBytes;
+
+        using MemoryStream stream = new(payload);
+        return Serializer.Deserialize<SophonPatchManifest>(stream);
+    }
+
+    private static bool IsZstdFrame(byte[] bytes) =>
+        bytes.Length >= 4 &&
+        bytes[0] == 0x28 && bytes[1] == 0xB5 &&
+        bytes[2] == 0x2F && bytes[3] == 0xFD;
+
+    private static string NormalizeSophonPath(string? path) =>
+        (path ?? string.Empty).Replace('\\', '/').TrimStart('/');
+
     private static async Task<byte[]> DownloadBytesAsync(string url, CancellationToken cancellationToken)
     {
         using HttpResponseMessage response = await HttpClient.GetAsync(url, cancellationToken);
@@ -250,6 +383,18 @@ public sealed class SophonDownloadService : IDisposable
     {
         using Decompressor decompressor = new();
         return decompressor.Unwrap(compressed).ToArray();
+    }
+
+    private static string GetUrlFileName(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
+        {
+            string fileName = Path.GetFileName(Uri.UnescapeDataString(uri.AbsolutePath));
+            if (!string.IsNullOrWhiteSpace(fileName))
+                return fileName;
+        }
+
+        throw new InvalidDataException($"Unable to determine the original manifest filename from URL: {url}");
     }
 
     private static string BuildPatchArtifactPath(string file, string? originalFileName)
@@ -272,6 +417,8 @@ public sealed class SophonDownloadService : IDisposable
 
         var allFiles = new List<SophonChunkFile>();
         var fileManifest = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var manifestFiles = new List<SophonManifestArtifact>();
+        var contentFilePaths = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         foreach (SophonContentOption option in selectedList)
         {
@@ -288,6 +435,12 @@ public sealed class SophonDownloadService : IDisposable
             using HttpResponseMessage response = await HttpClient.GetAsync(manifestUrl, cancellationToken);
             response.EnsureSuccessStatusCode();
             byte[] compressedManifest = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            manifestFiles.Add(new SophonManifestArtifact
+            {
+                FileName = GetUrlFileName(manifestUrl),
+                SourceUrl = manifestUrl,
+                Data = compressedManifest
+            });
 
             using Decompressor decompressor = new();
             byte[] decompressedManifest = decompressor.Unwrap(compressedManifest).ToArray();
@@ -296,24 +449,30 @@ public sealed class SophonDownloadService : IDisposable
             using MemoryStream stream = new(decompressedManifest);
             parsedManifest = Serializer.Deserialize<SophonChunkManifest>(stream);
 
+            var categoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (SophonChunkFile file in parsedManifest.Chuncks)
             {
+                categoryPaths.Add(file.File);
                 if (fileManifest.ContainsKey(file.File)) continue;
                 allFiles.Add(file);
                 fileManifest[file.File] = chunkPrefix;
             }
+
+            contentFilePaths[category.category_id] = categoryPaths.ToList();
         }
 
         var content = new SophonContentSet
         {
             AllFiles = allFiles,
             FileManifest = fileManifest,
-            SelectedContent = selectedList
+            SelectedContent = selectedList,
+            ManifestFiles = manifestFiles,
+            ContentFilePaths = contentFilePaths
         };
 
         _currentContent = content;
 
-        Logger.Info($"Sophon content loaded. " + $"Files={content.FileCount:N0}, " + $"Chunks={content.UniqueChunkCount:N0}");
+        Logger.Info($"Sophon content loaded. Files={content.FileCount:N0}, Chunks={content.UniqueChunkCount:N0}, Manifests={content.ManifestFiles.Count:N0}");
 
         return content;
     }
@@ -332,14 +491,10 @@ public sealed class SophonDownloadService : IDisposable
             if (_chunkDownloadRunning)
                 throw new InvalidOperationException("A Sophon chunk download is already running.");
 
-            if (_extractionRunning)
-                throw new InvalidOperationException("Sophon extraction is currently running.");
-
             Directory.CreateDirectory(saveDirectory);
 
             _currentContent = content;
             _currentSaveDirectory = Path.GetFullPath(saveDirectory);
-            _chunkDownloadCompletedPending = false;
             _chunkDownloadCancelledPending = false;
             _chunkDownloadRunning = true;
 
@@ -369,6 +524,7 @@ public sealed class SophonDownloadService : IDisposable
 
             try
             {
+                SaveManifestFiles(content, _currentSaveDirectory);
                 await _downloader.StartDownload(content.AllFiles, content.FileManifest, _currentSaveDirectory, concurrency);
             }
             catch
@@ -379,13 +535,7 @@ public sealed class SophonDownloadService : IDisposable
 
             _chunkDownloadRunning = false;
 
-            if (_chunkDownloadCompletedPending)
-            {
-                _chunkDownloadCompletedPending = false;
-                Logger.Info("Sophon chunk download fully completed. " + "Dispatching completion callback.");
-                ChunkDownloadCompletedCallback?.Invoke();
-            }
-            else if (_chunkDownloadCancelledPending)
+            if (_chunkDownloadCancelledPending)
             {
                 _chunkDownloadCancelledPending = false;
                 Logger.Info("Sophon chunk download fully cancelled. " + "Dispatching cancellation callback.");
@@ -399,86 +549,56 @@ public sealed class SophonDownloadService : IDisposable
         }
     }
 
-    public async Task StartExtractionAsync(
-        SophonContentSet content, string saveDirectory, bool cleanupExtraFiles = false, bool deleteChunksAfterExtraction = false)
+    private static void SaveManifestFiles(SophonContentSet content, string saveDirectory)
     {
-        ThrowIfDisposed();
-
-        if (string.IsNullOrWhiteSpace(saveDirectory))
-            throw new ArgumentException("Save directory cannot be empty.", nameof(saveDirectory));
-
-        await _operationLock.WaitAsync();
-
-        try
+        if (content.ManifestFiles.Count == 0)
         {
-            if (_chunkDownloadRunning)
-                throw new InvalidOperationException("Sophon chunk download is still running.");
+            Logger.Warn("No companion Sophon manifests were attached to this download.");
+            return;
+        }
 
-            if (_extractionRunning)
-                throw new InvalidOperationException("A Sophon extraction is already running.");
+        foreach (SophonManifestArtifact manifest in content.ManifestFiles)
+        {
+            if (string.IsNullOrWhiteSpace(manifest.FileName))
+                throw new InvalidDataException("A companion manifest has an empty file name.");
 
-            Directory.CreateDirectory(saveDirectory);
+            string fileName = Path.GetFileName(manifest.FileName);
+            if (!string.Equals(fileName, manifest.FileName, StringComparison.Ordinal))
+                throw new InvalidDataException($"Invalid companion manifest file name: {manifest.FileName}");
 
-            _currentContent = content;
-            _currentSaveDirectory = Path.GetFullPath(saveDirectory);
-            _extractionCompletedPending = false;
-            _extractionCancelledPending = false;
-            _extractionRunning = true;
+            string destination = Path.Combine(saveDirectory, fileName);
+            string temporary = destination + $".{Guid.NewGuid():N}.tmp";
 
-            Logger.Info($"Starting Sophon extraction. " + $"Destination={_currentSaveDirectory}");
+            if (File.Exists(destination))
+            {
+                try
+                {
+                    if (new FileInfo(destination).Length == manifest.Data.LongLength &&
+                        File.ReadAllBytes(destination).AsSpan().SequenceEqual(manifest.Data))
+                    {
+                        Logger.Debug($"Companion manifest already exists: {destination}");
+                        continue;
+                    }
+                }
+                catch (IOException) {}
+            }
 
             try
             {
-                await _downloader.StartExtraction(content.AllFiles, _currentSaveDirectory, cleanupExtraFiles, content.IsPatch, content.IsLdiffPatch);
+                File.WriteAllBytes(temporary, manifest.Data);
+                File.Move(temporary, destination, true);
             }
-            catch
+            finally
             {
-                _extractionRunning = false;
-                throw;
+                if (File.Exists(temporary))
+                {
+                    try { File.Delete(temporary); }
+                    catch (IOException ex) { Logger.Warn(ex, $"Unable to remove temporary manifest file: {temporary}"); }
+                }
             }
 
-            _extractionRunning = false;
-
-            if (_extractionCompletedPending)
-            {
-                if (deleteChunksAfterExtraction)
-                    DeleteContentChunks(content, _currentSaveDirectory);
-
-                _extractionCompletedPending = false;
-                Logger.Info("Sophon extraction fully completed. " + "Dispatching completion callback.");
-                ExtractionCompletedCallback?.Invoke();
-            }
-            else if (_extractionCancelledPending)
-            {
-                _extractionCancelledPending = false;
-                Logger.Info("Sophon extraction fully cancelled. " + "Dispatching cancellation callback.");
-                ExtractionCancelledCallback?.Invoke();
-            }
+            Logger.Info($"Companion manifest saved. File={destination}; Size={Utility.FormatFileSize(manifest.Data.LongLength)}; Source={manifest.SourceUrl}");
         }
-        finally
-        {
-            _extractionRunning = false;
-            _operationLock.Release();
-        }
-    }
-
-    private static void DeleteContentChunks(
-        SophonContentSet content,
-        string saveDirectory)
-    {
-        List<string> chunkIds = content.AllFiles
-            .SelectMany(x => x.Chunks)
-            .Select(x => x.Id)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (chunkIds.Count == 0)
-            return;
-
-        Logger.Info($"Deleting {chunkIds.Count:N0} Sophon chunks after extraction.");
-
-        var store = new ChunkStore(saveDirectory);
-        store.DeleteChunks(chunkIds);
     }
 
     public void TogglePause()
@@ -499,20 +619,8 @@ public sealed class SophonDownloadService : IDisposable
         _downloader.ChunkProgressUpdateCallback =
             progress => ChunkProgressCallback?.Invoke(progress);
 
-        _downloader.ExtractionProgressUpdateCallback =
-            progress => ExtractionProgressCallback?.Invoke(progress);
-
-        _downloader.ChunkDownloadCompletedCallback =
-            () => _chunkDownloadCompletedPending = true;
-
-        _downloader.ExtractionCompletedCallback =
-            () => _extractionCompletedPending = true;
-
         _downloader.DownloadCancelledCallback =
             () => _chunkDownloadCancelledPending = true;
-
-        _downloader.ExtractionCancelledCallback =
-            () => _extractionCancelledPending = true;
     }
 
     private void ThrowIfDisposed()

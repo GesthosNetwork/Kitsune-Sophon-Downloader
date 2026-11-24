@@ -1,6 +1,6 @@
 using Microsoft.Data.Sqlite;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 internal static class ConcurrencyDefaults
 {

@@ -1,7 +1,11 @@
-namespace SophonDownloader;
+using KitsuneSophonDownloader.Utilities;
+
+namespace KitsuneSophonDownloader;
 
 public static class ThemeManager
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
+
     private sealed record Palette(
         string Background,
         string Surface,
@@ -67,11 +71,22 @@ public static class ThemeManager
         SetBrush(window.Resources, "DangerSoftHoverBrush", p.DangerSoftHover);
         SetBrush(window.Resources, "ReloadButtonBackgroundBrush", p.SurfaceHover);
         SetBrush(window.Resources, "LogoBackgroundBrush", p.Primary);
-        SetBrush(window.Resources, "HeaderForegroundBrush", darkMode ? "#FFFFFF" : p.Text);
         SetBrush(window.Resources, "HeaderHoverBrush", p.PrimaryHover);
         SetBrush(window.Resources, "GameTextPanelBrush", darkMode ? "#B8000000" : "#55FFFFFF");
-        bool hasBackgroundImage = !string.IsNullOrWhiteSpace(settings.BackgroundImagePath) && File.Exists(settings.BackgroundImagePath);
-        SetBrush(window.Resources, "BackgroundScrimBrush", hasBackgroundImage ? (darkMode ? "#99000000" : "#18000000") : "#00000000");
+        bool hasBackgroundImage = false;
+        if (!string.IsNullOrWhiteSpace(settings.BackgroundImagePath))
+        {
+            try
+            {
+                hasBackgroundImage = File.Exists(Utility.ResolveApplicationPath(settings.BackgroundImagePath));
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "The configured background image path is invalid.");
+            }
+        }
+        SetBrush(window.Resources, "BackgroundScrimBrush", hasBackgroundImage ? (darkMode ? "#33000000" : "#18000000") : "#00000000");
+        SetBrush(window.Resources, "HeaderForegroundBrush", hasBackgroundImage || darkMode ? "#FFFFFF" : p.Text);
 
         SetBrush(window.Resources, "BackgroundBrush", p.Background);
         SetBrush(window.Resources, "SurfaceBrush", p.Surface);

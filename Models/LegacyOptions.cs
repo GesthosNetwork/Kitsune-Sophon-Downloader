@@ -1,4 +1,4 @@
-namespace SophonDownloader.Models;
+namespace KitsuneSophonDownloader.Models;
 
 public sealed class GameOption
 {

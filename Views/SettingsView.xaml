@@ -1,4 +1,4 @@
-<UserControl x:Class="SophonDownloader.SettingsView"
+<UserControl x:Class="KitsuneSophonDownloader.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
@@ -460,7 +460,7 @@
                                        Foreground="{DynamicResource TextBrush}"
                                        FontSize="12"/>
 
-                            <TextBlock Text="PNG, JPG, JPEG, BMP or GIF."
+                            <TextBlock Text="PNG, JPG, JPEG, BMP or GIF. Relative paths start from the .exe folder (e.g. .\background.png)."
                                        Foreground="{DynamicResource MutedBrush}"
                                        FontSize="10"
                                        Margin="0,4,20,0"/>
@@ -479,8 +479,9 @@
                                      Grid.Column="0"
                                      Height="38"
                                      Style="{StaticResource InputStyle}"
-                                     IsReadOnly="True"
-                                     ToolTip="Selected background image path"
+                                     TextChanged="BackgroundImageTextBox_TextChanged"
+                                     LostFocus="BackgroundImageTextBox_LostFocus"
+                                     ToolTip="Enter an image path. Relative paths start from the folder containing KitsuneSophonDownloader.exe; for example: .\background.png"
                                      Margin="0,0,8,0"/>
 
                             <Button Grid.Column="1"

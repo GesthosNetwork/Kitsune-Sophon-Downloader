@@ -1,10 +1,10 @@
 using SharpCompress.Archives.SevenZip;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public sealed class ApplicationUpdateService
 {
-    private const string ApiUrl = "https://api.github.com/repos/GesthosNetwork/Sophon-Downloader/releases/latest";
+    private const string ApiUrl = "https://api.github.com/repos/GesthosNetwork/Kitsune-Sophon-Downloader/releases/latest";
     private static readonly HttpClient HttpClient = CreateHttpClient();
 
     public async Task<ApplicationUpdateInfo?> CheckForUpdateAsync(CancellationToken cancellationToken = default)
@@ -66,7 +66,7 @@ public sealed class ApplicationUpdateService
             ?? throw new InvalidOperationException("Unable to determine the application directory.");
 
         string executableName = Path.GetFileName(executablePath);
-        string updateRoot = Path.Combine(Path.GetTempPath(), $"SophonDownloader-Update-{Guid.NewGuid():N}");
+        string updateRoot = Path.Combine(Path.GetTempPath(), $"KitsuneSophonDownloader-Update-{Guid.NewGuid():N}");
         string packagePath = Path.Combine(updateRoot, update.FileName);
         string stagingDirectory = Path.Combine(updateRoot, "staging");
         string updaterPath = Path.Combine(updateRoot, "apply-update.bat");
@@ -267,7 +267,7 @@ public sealed class ApplicationUpdateService
 
         if (!string.IsNullOrWhiteSpace(update.FileName))
         {
-            urls.Add($"https://github.com/GesthosNetwork/Sophon-Downloader/releases/latest/download/{Uri.EscapeDataString(update.FileName)}");
+            urls.Add($"https://github.com/GesthosNetwork/Kitsune-Sophon-Downloader/releases/latest/download/{Uri.EscapeDataString(update.FileName)}");
         }
 
         Exception? lastError = null;
@@ -339,7 +339,7 @@ public sealed class ApplicationUpdateService
             Timeout = TimeSpan.FromMinutes(5)
         };
 
-        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SophonDownloader", App.Version));
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("KitsuneSophonDownloader", App.Version));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
 

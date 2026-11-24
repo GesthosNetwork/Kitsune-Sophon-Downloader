@@ -1,4 +1,4 @@
-<UserControl x:Class="SophonDownloader.DownloadsView"
+<UserControl x:Class="KitsuneSophonDownloader.DownloadsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -6,7 +6,7 @@
              mc:Ignorable="d">
 
     <UserControl.Resources>
-<Style x:Key="QueueSecondaryButtonStyle" TargetType="Button">
+        <Style x:Key="QueueSecondaryButtonStyle" TargetType="Button">
             <Setter Property="Height" Value="40"/>
             <Setter Property="MinWidth" Value="96"/>
             <Setter Property="Padding" Value="14,0"/>
@@ -130,13 +130,6 @@
             </Setter>
         </Style>
 
-        <Style x:Key="QueueDeleteChunksCheckBoxStyle" TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
-            <Setter Property="FontSize" Value="10"/>
-            <Setter Property="FontWeight" Value="Medium"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-            <Setter Property="Cursor" Value="Hand"/>
-        </Style>
     </UserControl.Resources>
 
     <Grid>

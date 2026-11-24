@@ -1,13 +1,13 @@
-using SophonDownloader.Utilities;
+using KitsuneSophonDownloader.Utilities;
 
-namespace SophonDownloader.Core;
+namespace KitsuneSophonDownloader.Core;
 
 public sealed class ChunkStore
 {
     public string ApplicationDirectory { get; }
     public string ChunkDirectory { get; }
 
-    public ChunkStore() : this(Utility.GetApplicationDirectory()) { }
+    public ChunkStore() : this(Utility.GetApplicationDirectory()) {}
 
     public ChunkStore(string? baseDirectory)
     {

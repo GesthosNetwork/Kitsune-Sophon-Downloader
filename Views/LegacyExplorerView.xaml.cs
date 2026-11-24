@@ -1,9 +1,9 @@
 using System.Windows.Controls.Primitives;
-using SophonDownloader.Models;
-using SophonDownloader.Services;
-using SophonDownloader.Utilities;
+using KitsuneSophonDownloader.Models;
+using KitsuneSophonDownloader.Services;
+using KitsuneSophonDownloader.Utilities;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 public partial class LegacyExplorerView : UserControl
 {

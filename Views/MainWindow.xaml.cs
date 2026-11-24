@@ -1,16 +1,29 @@
 using Microsoft.Win32;
+using System.Runtime.InteropServices;
+using System.Windows.Interop;
 using System.Net.NetworkInformation;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
-using SophonDownloader.Models;
-using SophonDownloader.Services;
-using SophonDownloader.Utilities;
+using KitsuneSophonDownloader.Models;
+using KitsuneSophonDownloader.Services;
+using KitsuneSophonDownloader.Utilities;
 
-namespace SophonDownloader;
+namespace KitsuneSophonDownloader;
 
 public partial class MainWindow : Window
 {
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
+
+    private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmwcpRound = 2;
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        ref int pvAttribute,
+        int cbAttribute);
+
     private Brush AccentBrush => (Brush)Resources["AccentBrush"];
     private Brush SideNavInactiveBrush => (Brush)Resources["PanelBrush"];
     private Brush SideNavActiveBrush => (Brush)Resources["AccentBrush"];
@@ -51,17 +64,20 @@ public partial class MainWindow : Window
     private bool _initializing;
     private bool _legacyManifestLoading;
     private bool _sophonDestinationCustomized;
+    private bool _settingSophonDestinationProgrammatically;
     private bool _legacyContentUpdating;
     private bool _exploreActive;
     private MainPage _pageBeforeExplore = MainPage.Dashboard;
 
     private string DefaultDownloadDirectory => Utility.GetApplicationDirectory();
+    private string DefaultLegacyDownloadDirectory => Path.Combine(DefaultDownloadDirectory, "LegacyDownloads");
+    private string DefaultSophonDownloadDirectory => Path.Combine(DefaultDownloadDirectory, "SophonDownloads");
 
-    public string GetSophonDestinationDirectory() => SophonDestinationTextBox.Text.Trim();
+    public string GetSophonDestinationDirectory() => Utility.ResolveApplicationPath(SophonDestinationTextBox.Text);
 
     private static string DecodeDistributionMarqueeNotice()
     {
-        const string encoded = "U29waG9uIERvd25sb2FkZXIgaXMgZnJlZSBzb2Z0d2FyZS4gV2UgZG9uJ3Qgc2VsbCBpdC4gSWYgc29tZW9uZSBjaGFyZ2VzIHlvdSBmb3IgaXQsIGl0J3MgYSBzY2FtISBCZXdhcmUh";
+        const string encoded = "S2l0c3VuZSBTb3Bob24gRG93bmxvYWRlciBpcyBmcmVlIHNvZnR3YXJlLiBXZSBkb24ndCBzZWxsIGl0LiBJZiBzb21lb25lIGNoYXJnZXMgeW91IGZvciBpdCwgaXQncyBhIHNjYW0hIEJld2FyZSE=";
         return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
     }
 
@@ -81,8 +97,8 @@ public partial class MainWindow : Window
         _distributionNoticeTimer.Tick += DistributionNoticeTimer_Tick;
         NetworkChange.NetworkAvailabilityChanged += NetworkAvailabilityChanged;
         Loaded += MainWindow_Loaded;
+        SourceInitialized += MainWindow_SourceInitialized;
         Closing += MainWindow_Closing;
-        SizeChanged += MainWindow_SizeChanged;
 
         SettingsView.SettingsChanged += SettingsView_SettingsChanged;
         AppSettings initialSettings = AppSettingsStore.Load();
@@ -187,13 +203,17 @@ public partial class MainWindow : Window
 
     private static Brush CreateBackgroundBrush(string background, string? imagePath)
     {
-        if (!string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
+        if (!string.IsNullOrWhiteSpace(imagePath))
         {
             try
             {
+                string resolvedImagePath = Utility.ResolveApplicationPath(imagePath);
+                if (!File.Exists(resolvedImagePath))
+                    return new SolidColorBrush((Color)ColorConverter.ConvertFromString(background));
+
                 var image = new BitmapImage();
                 image.BeginInit();
-                image.UriSource = new Uri(imagePath, UriKind.Absolute);
+                image.UriSource = new Uri(resolvedImagePath, UriKind.Absolute);
                 image.CacheOption = BitmapCacheOption.OnLoad;
                 image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
                 image.EndInit();
@@ -216,14 +236,48 @@ public partial class MainWindow : Window
     }
 
     
+    private void MainWindow_SourceInitialized(object? sender, EventArgs e)
+    {
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            return;
+
+        try
+        {
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+                return;
+
+            int cornerPreference = DwmwcpRound;
+            int result = DwmSetWindowAttribute(
+                hwnd,
+                DwmwaWindowCornerPreference,
+                ref cornerPreference,
+                sizeof(int));
+
+            if (result != 0)
+                Logger.Debug($"DWM window-corner preference was not applied (HRESULT 0x{result:X8}).");
+        }
+        catch (DllNotFoundException ex)
+        {
+            Logger.Debug(ex, "DWM API is unavailable; using the default window frame.");
+        }
+        catch (EntryPointNotFoundException ex)
+        {
+            Logger.Debug(ex, "DWM corner API is unavailable; using the default window frame.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Unable to apply the native Windows window-corner preference.");
+        }
+    }
+
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _initializing = true;
-        UpdateRootClip();
 
-        string directory = DefaultDownloadDirectory;
+        string directory = Utility.ToApplicationRelativePath(DefaultLegacyDownloadDirectory);
         LegacyDestinationTextBox.Text = directory;
-        SophonDestinationTextBox.Text = directory;
+        SetSophonDestinationText(Utility.ToApplicationRelativePath(DefaultSophonDownloadDirectory));
         _sophonDestinationCustomized = false;
 
         LegacyPatchSourcePanel.Visibility = Visibility.Collapsed;
@@ -247,11 +301,6 @@ public partial class MainWindow : Window
         StartupOverlay.Visibility = Visibility.Collapsed;
 
         ShowDistributionNoticeMarquee();
-    }
-
-    private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        UpdateRootClip();
     }
 
     private void DistributionNoticeTimer_Tick(object? sender, EventArgs e)
@@ -337,16 +386,6 @@ public partial class MainWindow : Window
         DistributionNoticeMarqueeBorder.Visibility = Visibility.Collapsed;
         DistributionNoticeRow.Height = new GridLength(0);
         _distributionNoticeTimer.Start();
-    }
-
-    private void UpdateRootClip()
-    {
-        if (RootContentBorder.ActualWidth <= 0 || RootContentBorder.ActualHeight <= 0)
-            return;
-
-        const double radius = 13;
-        RootContentBorder.Clip = new RectangleGeometry(
-            new Rect(0, 0, RootContentBorder.ActualWidth, RootContentBorder.ActualHeight), radius, radius);
     }
 
     private bool _shutdownCleanupStarted;
@@ -459,7 +498,7 @@ public partial class MainWindow : Window
 
     private async Task ShowReloadOverlayAsync()
     {
-        StartupLoadingTitle.Text = "Reloading SophonDownloader...";
+        StartupLoadingTitle.Text = "Reloading Kitsune Sophon Downloader...";
         StartupLoadingStatus.Text = "Refreshing remote game manifest...";
 
         StartupOverlay.Visibility = Visibility.Visible;
@@ -509,7 +548,7 @@ public partial class MainWindow : Window
         StartupOverlay.BeginAnimation(UIElement.OpacityProperty, null);
         StartupOverlay.Opacity = 0.96;
         StartupOverlay.Visibility = Visibility.Collapsed;
-        StartupLoadingTitle.Text = "Initializing SophonDownloader...";
+        StartupLoadingTitle.Text = "Initializing Kitsune Sophon Downloader...";
         StartupLoadingStatus.Text = "Preparing application startup...";
     }
 
@@ -525,7 +564,7 @@ public partial class MainWindow : Window
                 string? selectedGameCode = GameComboBox.SelectedItem is GameOption selectedGame ? selectedGame.Code : null;
                 string? selectedVersion = VersionComboBox.SelectedItem as string;
 
-                await LoadLegacyGamesAsync(true, selectedGameCode, selectedVersion);
+                await LoadLegacyGamesAsync(true, selectedGameCode, selectedVersion, forceRefresh: true);
                 RefreshLegacyVersion();
             }
             else
@@ -565,7 +604,7 @@ public partial class MainWindow : Window
     {
         bool legacy = _mode == DownloaderMode.Legacy;
 
-        AppTitleText.Text = "SOPHON DOWNLOADER";
+        AppTitleText.Text = "KITSUNE SOPHON DOWNLOADER";
 
         SophonModeButton.Background = legacy
             ? (Brush)Resources["ModeButtonBackgroundBrush"]
@@ -660,7 +699,7 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private async Task LoadLegacyGamesAsync(bool preserveSelection = false, string? selectedGameCode = null, string? selectedVersion = null)
+    private async Task LoadLegacyGamesAsync(bool preserveSelection = false, string? selectedGameCode = null, string? selectedVersion = null, bool forceRefresh = false)
     {
         CancelDispose(ref _legacyManifestCts);
         _legacyManifestCts = new CancellationTokenSource();
@@ -671,7 +710,7 @@ public partial class MainWindow : Window
 
         try
         {
-            List<GameOption> loadedGames = await _legacyManifestService.LoadGamesAsync(ct);
+            List<GameOption> loadedGames = await _legacyManifestService.LoadGamesAsync(ct, forceRefresh);
             _legacyGames = loadedGames ?? [];
 
             if (ct.IsCancellationRequested)
@@ -1089,19 +1128,36 @@ public partial class MainWindow : Window
         if (!TryGetLegacySelection(out LegacyVersion version, out string? fromVersion))
             return;
 
-        string destination = LegacyDestinationTextBox.Text.Trim();
+        string destinationInput = LegacyDestinationTextBox.Text.Trim();
 
-        if (string.IsNullOrWhiteSpace(destination))
+        if (string.IsNullOrWhiteSpace(destinationInput))
         {
             Warn("Please choose a download folder.", "Download");
             return;
         }
 
-        List<string> urls;
+        string destination;
+        try
+        {
+            destination = Utility.ResolveApplicationPath(destinationInput);
+        }
+        catch (Exception ex)
+        {
+            Warn($"The download folder path is invalid:\n\n{ex.Message}", "Download");
+            return;
+        }
+
+        IReadOnlyList<LegacyContentOption> selectedContent = GetSelectedLegacyContentOptions();
+        var contentDownloads = new List<(LegacyContentOption Content, List<string> Urls)>();
 
         try
         {
-            urls = BuildLegacyUrls(version, fromVersion);
+            foreach (LegacyContentOption content in selectedContent)
+            {
+                List<string> contentUrls = BuildLegacyUrls(version, fromVersion, content);
+                if (contentUrls.Count > 0)
+                    contentDownloads.Add((content, contentUrls));
+            }
         }
         catch (Exception ex)
         {
@@ -1110,20 +1166,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (urls.Count == 0)
+        if (contentDownloads.Count == 0)
         {
-            Error("No valid download URLs were resolved.", "Download");
+            Error("No valid download URLs were resolved for the selected content.", "Download");
             return;
         }
 
         string gameName = GameComboBox.SelectedItem is GameOption game ? game.Name : "Legacy";
         string selectedVersion = VersionComboBox.SelectedItem as string ?? string.Empty;
         string title = string.IsNullOrWhiteSpace(selectedVersion) ? gameName : $"{gameName} {selectedVersion}";
-        IReadOnlyList<LegacyContentOption> selectedContent = GetSelectedLegacyContentOptions();
 
         try
         {
-            DownloadsView.AddLegacyDownload(urls, destination, title, selectedContent);
+            foreach ((LegacyContentOption content, List<string> contentUrls) in contentDownloads)
+                DownloadsView.AddLegacyDownload(contentUrls, destination, title, [content]);
+
             SetMainPage(MainPage.Downloads);
         }
         catch (Exception ex)
@@ -1249,51 +1306,49 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private List<string> BuildLegacyUrls(LegacyVersion version, string? fromVersion)
+    private List<string> BuildLegacyUrls(
+        LegacyVersion version, string? fromVersion, LegacyContentOption option)
     {
-        List<LegacyContentOption> selected = GetSelectedLegacyContentOptions();
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(option);
+
         var urls = new List<string>();
 
-        foreach (LegacyContentOption option in selected)
+        if (_legacyDownloadMode == LegacyDownloadMode.Full)
         {
-            if (_legacyDownloadMode == LegacyDownloadMode.Full)
+            if (option.IsGame)
             {
-                if (option.IsGame)
-                {
-                    IEnumerable<string> gameUrls = ManifestResolver.GetGameFullUrls(version) ?? [];
-                    urls.AddRange(gameUrls.Where(ManifestResolver.HasValidUrl));
-                }
-                else
-                {
-                    string? url = ManifestResolver.BuildFullVoiceUrl(version, option.Code);
-
-                    if (ManifestResolver.HasValidUrl(url))
-                        urls.Add(url);
-                }
+                IEnumerable<string> gameUrls = ManifestResolver.GetGameFullUrls(version) ?? [];
+                urls.AddRange(gameUrls.Where(ManifestResolver.HasValidUrl));
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(fromVersion))
-                    throw new InvalidOperationException("Patch source version is missing.");
+                string? url = ManifestResolver.BuildFullVoiceUrl(version, option.Code);
+                if (ManifestResolver.HasValidUrl(url))
+                    urls.Add(url);
+            }
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(fromVersion))
+                throw new InvalidOperationException("Patch source version is missing.");
 
-                if (option.IsGame)
-                {
-                    string? url = ManifestResolver.BuildGameUpdateUrl(version, fromVersion);
-
-                    if (ManifestResolver.HasValidUrl(url))
-                        urls.Add(url);
-                }
-                else if (version.Update.TryGetValue(fromVersion, out LegacyUpdate? update) &&
-                         update is not null && update.Voice.TryGetValue(option.Code, out LegacyPackage? package) &&
-                         package is not null && ManifestResolver.HasValidUrl(package.Url))
-                {
-                    urls.Add(package.Url);
-                }
+            if (option.IsGame)
+            {
+                string? url = ManifestResolver.BuildGameUpdateUrl(version, fromVersion);
+                if (ManifestResolver.HasValidUrl(url))
+                    urls.Add(url);
+            }
+            else if (version.Update.TryGetValue(fromVersion, out LegacyUpdate? update) &&
+                     update is not null && update.Voice.TryGetValue(option.Code, out LegacyPackage? package) &&
+                     package is not null && ManifestResolver.HasValidUrl(package.Url))
+            {
+                urls.Add(package.Url);
             }
         }
 
         if (urls.Count == 0)
-            throw new InvalidOperationException("No valid download URLs were found for the selected content.");
+            throw new InvalidOperationException($"No valid download URLs were found for {option.Name}.");
 
         return urls;
     }
@@ -1415,11 +1470,22 @@ public partial class MainWindow : Window
             return;
         }
 
-        string baseDestination = LegacyDestinationTextBox.Text.Trim();
+        string baseDestinationInput = LegacyDestinationTextBox.Text.Trim();
 
-        if (string.IsNullOrWhiteSpace(baseDestination))
+        if (string.IsNullOrWhiteSpace(baseDestinationInput))
         {
             Warn("Please choose a save folder.", "Legacy Explore");
+            return;
+        }
+
+        string baseDestination;
+        try
+        {
+            baseDestination = Utility.ResolveApplicationPath(baseDestinationInput);
+        }
+        catch (Exception ex)
+        {
+            Warn($"The save folder path is invalid:\n\n{ex.Message}", "Legacy Explore");
             return;
         }
 
@@ -1488,31 +1554,6 @@ public partial class MainWindow : Window
         return SanitizeFolderName(name);
     }
 
-    private static string GetSophonFolderGameName(GameInfo game)
-    {
-        string gameId = game.GameId ?? string.Empty;
-        string displayName = game.DisplayName ?? "Game";
-
-        return SophonFolderNames.GetValueOrDefault(
-            gameId, SanitizeFolderName(displayName));
-    }
-
-    private static readonly Dictionary<string, string> SophonFolderNames = new()
-    {
-        ["hk4e_global"] = "GenshinImpact",
-        ["hk4e_cn"] = "YuanShen",
-        ["hkrpg_global"] = "StarRail",
-        ["hkrpg_cn"] = "StarRail",
-        ["nap_global"] = "ZenlessZoneZero",
-        ["nap_cn"] = "ZenlessZoneZero",
-        ["bh3_global"] = "Hi3Global",
-        ["bh3_sea"] = "Hi3SEA",
-        ["bh3_cn"] = "Hi3CN",
-        ["bh3_jp"] = "Hi3JP",
-        ["bh3_kr"] = "Hi3KR",
-        ["bh3_tw"] = "Hi3TW"
-    };
-
     private static string SanitizeFolderName(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1547,6 +1588,10 @@ public partial class MainWindow : Window
             ct.ThrowIfCancellationRequested();
 
             _sophonContentOptions = _sophonDownloadService.BuildContentOptions(manifest)?.ToList() ?? [];
+            SophonContentSummaryText.Text = "Preparing CONTENT...";
+            await SophonCategoryTranslationService.TranslateOptionsAsync(_sophonContentOptions, ct);
+            ct.ThrowIfCancellationRequested();
+
             SophonContentItemsControl.ItemsSource = _sophonContentOptions;
             SophonExplorerButton.Visibility = _sophonContentOptions.Count > 0
                 ? Visibility.Visible
@@ -1790,19 +1835,46 @@ public partial class MainWindow : Window
 
     private void UpdateSophonDefaultDestination()
     {
-        if (_sophonDestinationCustomized ||
-            _currentSophonGame is null ||
-            SophonVersionComboBox.SelectedItem is not string version ||
-            string.IsNullOrWhiteSpace(version))
+        if (_sophonDestinationCustomized)
             return;
 
-        string game = GetSophonFolderGameName(_currentSophonGame);
-        string folderName = _sophonDownloadMode == SophonDownloadMode.Patch
-            && SophonFromVersionComboBox.SelectedItem is string fromVersion
-            && !string.IsNullOrWhiteSpace(fromVersion)
-            ? $"{game}_{fromVersion}-{version}"
-            : $"{game}_{version}";
-        SophonDestinationTextBox.Text = Path.Combine(Utility.GetApplicationDirectory(), folderName);
+        SetSophonDestinationText(Utility.ToApplicationRelativePath(DefaultSophonDownloadDirectory));
+    }
+
+    private void SetSophonDestinationText(string value)
+    {
+        _settingSophonDestinationProgrammatically = true;
+        try
+        {
+            SophonDestinationTextBox.Text = value;
+        }
+        finally
+        {
+            _settingSophonDestinationProgrammatically = false;
+        }
+    }
+
+    private void SophonDestinationTextBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_initializing && !_settingSophonDestinationProgrammatically)
+            _sophonDestinationCustomized = true;
+    }
+
+    private void DestinationPathTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox textBox || string.IsNullOrWhiteSpace(textBox.Text))
+            return;
+
+        try
+        {
+            string compactPath = Utility.ToApplicationRelativePath(textBox.Text);
+            if (!string.Equals(textBox.Text, compactPath, StringComparison.Ordinal))
+                textBox.Text = compactPath;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn(ex, "Unable to normalize a download destination path for display.");
+        }
     }
 
     private void SophonContentCheckBox_Changed(object sender, RoutedEventArgs e)
@@ -1934,9 +2006,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        string destination = SophonDestinationTextBox.Text.Trim();
+        string destinationInput = SophonDestinationTextBox.Text.Trim();
 
-        if (string.IsNullOrWhiteSpace(destination))
+        if (string.IsNullOrWhiteSpace(destinationInput))
         {
             Warn("Please choose a save folder.", "Sophon");
             return;
@@ -1944,6 +2016,7 @@ public partial class MainWindow : Window
 
         try
         {
+            string destination = Utility.ResolveApplicationPath(destinationInput);
             ManifestConfig? manifest = _sophonDownloadService.CurrentManifest;
 
             if (manifest is not null &&
@@ -1976,7 +2049,7 @@ public partial class MainWindow : Window
 
             DownloadsView.AddSophonDownload(
                 _currentSophonGame, version, GetSophonChannel(), selected, destination,
-                true, manifest, patchFromVersion);
+                manifest, patchFromVersion);
 
             SetMainPage(MainPage.Downloads);
         }
@@ -2004,15 +2077,12 @@ public partial class MainWindow : Window
             return false;
 
         string folderName = dialog.FolderName ?? string.Empty;
-        target.Text = folderName;
-        return !string.IsNullOrWhiteSpace(folderName);
-    }
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Pressed)
-            DragMove();
-    }
+        if (string.IsNullOrWhiteSpace(folderName))
+            return false;
 
+        target.Text = Utility.ToApplicationRelativePath(folderName);
+        return true;
+    }
     private void MinimizeButton_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
     private static void Warn(string message, string title) => MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning);

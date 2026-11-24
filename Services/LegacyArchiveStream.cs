@@ -1,6 +1,6 @@
 using System.Net.Http.Headers;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public sealed class LegacyArchivePart
 {

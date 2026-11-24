@@ -1,11 +1,11 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public sealed class Aria2cProgressInfo
 {
-    public long BytesReceived { get; init; }
+    public long? BytesReceived { get; init; }
     public long? TotalBytes { get; init; }
     public double? Percent { get; init; }
     public long? SpeedBytesPerSecond { get; init; }
@@ -44,7 +44,8 @@ public sealed class Aria2c
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex SpeedRegex = new(
-        @"DL:(?<speed>\d+(?:\.\d+)?)\s*(?<unit>[KMGTPE]?i?B)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        @"\bDL\s*:\s*(?<speed>\d+(?:\.\d+)?)\s*(?<unit>[KMGTPE]?i?B)(?:/s)?\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex EtaRegex = new(
         @"ETA:(?<eta>[^\s\]\)]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -188,8 +189,9 @@ public sealed class Aria2c
                     aria2c.KillCurrentProcess();
             }, this);
 
-            Task stdoutTask = ReadOutputAsync(process.StandardOutput, outputLine, progress);
-            Task stderrTask = ReadOutputAsync(process.StandardError, outputLine, progress);
+            var progressAccumulator = new Aria2cProgressAccumulator();
+            Task stdoutTask = ReadOutputAsync(process.StandardOutput, outputLine, progress, progressAccumulator);
+            Task stderrTask = ReadOutputAsync(process.StandardError, outputLine, progress, progressAccumulator);
             Task exitTask = process.WaitForExitAsync();
             Task cancellationTask = Task.Delay(Timeout.InfiniteTimeSpan, ct);
             Task completedTask = await Task.WhenAny(exitTask, cancellationTask);
@@ -223,7 +225,8 @@ public sealed class Aria2c
     private static async Task ReadOutputAsync(
         StreamReader reader,
         Action<string>? outputLine,
-        Action<Aria2cProgressInfo>? progress)
+        Action<Aria2cProgressInfo>? progress,
+        Aria2cProgressAccumulator progressAccumulator)
     {
         try
         {
@@ -238,10 +241,40 @@ public sealed class Aria2c
                 outputLine?.Invoke(line);
 
                 if (TryParseProgress(line, out Aria2cProgressInfo info))
-                    progress?.Invoke(info);
+                    progress?.Invoke(progressAccumulator.Merge(info));
             }
         }
         catch {}
+    }
+
+    private sealed class Aria2cProgressAccumulator
+    {
+        private readonly object _sync = new();
+        private long? _bytesReceived;
+        private long? _totalBytes;
+        private double? _percent;
+
+        public Aria2cProgressInfo Merge(Aria2cProgressInfo partial)
+        {
+            lock (_sync)
+            {
+                if (partial.BytesReceived.HasValue)
+                    _bytesReceived = partial.BytesReceived.Value;
+                if (partial.TotalBytes.HasValue)
+                    _totalBytes = partial.TotalBytes.Value;
+                if (partial.Percent.HasValue)
+                    _percent = partial.Percent.Value;
+
+                return new Aria2cProgressInfo
+                {
+                    BytesReceived = _bytesReceived ?? 0,
+                    TotalBytes = _totalBytes,
+                    Percent = _percent,
+                    SpeedBytesPerSecond = partial.SpeedBytesPerSecond,
+                    Eta = partial.Eta
+                };
+            }
+        }
     }
 
     private static bool TryParseProgress(string line, out Aria2cProgressInfo info)
@@ -280,7 +313,7 @@ public sealed class Aria2c
 
         info = new Aria2cProgressInfo
         {
-            BytesReceived = bytesReceived ?? 0,
+            BytesReceived = bytesReceived,
             TotalBytes = totalBytes,
             Percent = percent,
             SpeedBytesPerSecond = speed,
@@ -352,7 +385,7 @@ public sealed class Aria2c
 
     private static string ExtractAria2c()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "SophonDownloader");
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "KitsuneSophonDownloader");
         Directory.CreateDirectory(tempDirectory);
 
         string tempPath = Path.Combine(tempDirectory, "aria2c.exe");

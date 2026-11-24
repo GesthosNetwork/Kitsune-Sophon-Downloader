@@ -1,9 +1,9 @@
-using SophonDownloader;
-using SophonDownloader.Core;
-using SophonDownloader.Models;
-using SophonDownloader.Utilities;
+using KitsuneSophonDownloader;
+using KitsuneSophonDownloader.Core;
+using KitsuneSophonDownloader.Models;
+using KitsuneSophonDownloader.Utilities;
 
-namespace SophonDownloader.Services;
+namespace KitsuneSophonDownloader.Services;
 
 public sealed class ChunkDownloadProgress
 {
@@ -60,7 +60,6 @@ public sealed class ChunkDownloader : IDisposable
 
     public Action<ChunkDownloadProgress>? ProgressUpdateCallback { get; set; }
     public Action<string>? StatusTextCallback { get; set; }
-    public Action? DownloadCompletedCallback { get; set; }
     public Action? DownloadCancelledCallback { get; set; }
     public bool IsPaused => _isPaused;
 
@@ -168,7 +167,6 @@ public sealed class ChunkDownloader : IDisposable
         if (_totalChunks == 0)
         {
             PublishAggregateProgress("No chunks are required.", true);
-            DownloadCompletedCallback?.Invoke();
             return;
         }
 
@@ -256,7 +254,6 @@ public sealed class ChunkDownloader : IDisposable
         if (pendingChunks.Count == 0)
         {
             PublishAggregateProgress("All required chunks are already cached.", true);
-            DownloadCompletedCallback?.Invoke();
             return;
         }
 
@@ -279,7 +276,6 @@ public sealed class ChunkDownloader : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             PublishAggregateProgress("All required chunks are ready.", true);
-            DownloadCompletedCallback?.Invoke();
         }
         catch (OperationCanceledException)
         {
@@ -444,8 +440,10 @@ public sealed class ChunkDownloader : IDisposable
                 Path.GetFileName(temporaryPath),
                 existingBytes, null, info =>
                 {
-                    long currentBytes = info.BytesReceived;
                     long previousBytes = _aria2ChunkBytes.GetValueOrDefault(chunk.Id);
+                    // Keep the last known byte count when aria2c emits a speed/ETA-only update.
+                    // Also prevent a partial progress update from moving the counter backwards.
+                    long currentBytes = Math.Max(previousBytes, info.BytesReceived ?? previousBytes);
                     long delta = currentBytes - previousBytes;
                     if (delta > 0) Interlocked.Add(ref _downloadedBytes, delta);
 

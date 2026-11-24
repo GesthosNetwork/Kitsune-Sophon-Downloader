@@ -1,18 +1,27 @@
-<Window x:Class="SophonDownloader.MainWindow"
+<Window x:Class="KitsuneSophonDownloader.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:SophonDownloader"
-        Icon="../Assets/app.ico"
-        Title="SophonDownloader"
+        xmlns:local="clr-namespace:KitsuneSophonDownloader"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Icon="../Core/app.ico"
+        Title="Kitsune Sophon Downloader"
         Width="1280"
         Height="760"
         MinWidth="1050"
         MinHeight="650"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
+        AllowsTransparency="False"
+        Background="{DynamicResource WindowBackgroundBrush}"
         ResizeMode="CanResize">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="48"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"
+                            ResizeBorderThickness="6"
+                            UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
         <SolidColorBrush x:Key="PrimaryTextBrush" Color="#202124"/>
@@ -452,15 +461,17 @@
     </Window.Resources>
 
     <Border x:Name="RootBorder"
-            Background="{DynamicResource BorderBrush}"
-            CornerRadius="14"
+            Background="Transparent"
+            CornerRadius="0"
+            ClipToBounds="True"
             SnapsToDevicePixels="True">
 
         <Grid x:Name="RootLayoutGrid">
             <Border x:Name="RootContentBorder"
-                Margin="1"
+                Margin="0"
                 Background="Transparent"
-                CornerRadius="13"
+                CornerRadius="0"
+                ClipToBounds="True"
                 SnapsToDevicePixels="True">
 
             <Grid>
@@ -484,24 +495,22 @@
 
                 <Border Grid.Row="0"
                         Background="Transparent"
-                        CornerRadius="13,13,0,0"
-                        Panel.ZIndex="1"
-                        MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                        Panel.ZIndex="1">
 
                     <Grid>
                         <StackPanel Orientation="Horizontal"
                                     VerticalAlignment="Center"
                                     Margin="18,0">
 
-                            <Image Source="../Assets/app.ico"
+                            <Image Source="../Core/app.ico"
                                    Width="24"
                                    Height="24"
                                    Stretch="Uniform"
                                    VerticalAlignment="Center"/>
 
                             <TextBlock x:Name="AppTitleText"
-                                       Text="SOPHON DOWNLOADER"
-                                       Foreground="{DynamicResource PrimaryTextBrush}"
+                                       Text="KITSUNE SOPHON DOWNLOADER"
+                                       Foreground="{DynamicResource HeaderForegroundBrush}"
                                        FontSize="11"
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Center"
@@ -509,7 +518,7 @@
 
                             <TextBlock x:Name="AppVersionText"
                                        Text="• v0.0.0"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       Foreground="{DynamicResource HeaderForegroundBrush}"
                                        FontSize="10"
                                        FontWeight="Medium"
                                        VerticalAlignment="Center"
@@ -524,30 +533,35 @@
                                 <Button x:Name="SophonModeButton"
                                         Content="SOPHON MODE"
                                         Style="{StaticResource ModeButtonStyle}"
-                                        Click="SophonModeButton_Click"/>
+                                        Click="SophonModeButton_Click"
+                                        shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
 
                                 <Button x:Name="LegacyModeButton"
                                         Content="LEGACY MODE"
                                         Style="{StaticResource ModeButtonStyle}"
                                         Margin="4,0,0,0"
-                                        Click="LegacyModeButton_Click"/>
+                                        Click="LegacyModeButton_Click"
+                                        shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
                             </StackPanel>
 
                             <Button x:Name="ReloadButton"
                                     Content="⟳"
                                     Style="{StaticResource ReloadButtonStyle}"
                                     Margin="8,0,0,0"
-                                    Click="ReloadButton_Click"/>
+                                    Click="ReloadButton_Click"
+                                    shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
                         </StackPanel>
 
                         <StackPanel HorizontalAlignment="Right"
                                     Orientation="Horizontal">
                             <Button Content="—"
                                     Style="{StaticResource WindowButtonStyle}"
+                                    shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                     Click="MinimizeButton_Click"/>
                             <Button Content="×"
                                     Style="{StaticResource WindowButtonStyle}"
                                     FontSize="18"
+                                    shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                     Click="CloseButton_Click"/>
                         </StackPanel>
                     </Grid>
@@ -649,7 +663,7 @@
                                 <StackPanel Orientation="Horizontal"
                                             VerticalAlignment="Center"
                                             Margin="0,10,0,0">
-                                    <Image Source="../Assets/app.ico"
+                                    <Image Source="../Core/app.ico"
                                            Width="18"
                                            Height="18"
                                            Stretch="Uniform"
@@ -657,12 +671,14 @@
 
                                     <StackPanel VerticalAlignment="Center"
                                                 Margin="7,0,0,0">
-                                        <TextBlock Text="SOPHON DOWNLOADER"
-                                                   Foreground="{DynamicResource MutedTextBrush}"
+                                        <TextBlock Text="KITSUNE SOPHON DOWNLOADER"
+                                                   Foreground="{DynamicResource HeaderForegroundBrush}"
                                                    FontSize="9"
-                                                   FontWeight="Medium"/>
+                                                   FontWeight="Medium"
+                                                   Width="126"
+                                                   TextWrapping="Wrap"/>
                                         <TextBlock x:Name="SidePanelVersionText"
-                                                   Foreground="{DynamicResource MutedTextBrush}"
+                                                   Foreground="{DynamicResource HeaderForegroundBrush}"
                                                    FontSize="8"
                                                    Margin="0,2,0,0"/>
                                     </StackPanel>
@@ -860,6 +876,8 @@
 
                                                     <TextBox x:Name="LegacyDestinationTextBox"
                                                              Height="38"
+                                                             LostFocus="DestinationPathTextBox_LostFocus"
+                                                             ToolTip="Relative paths are resolved from the folder containing KitsuneSophonDownloader.exe. Example: .\LegacyDownloads"
                                                              VerticalContentAlignment="Center"
                                                              Padding="10,0"
                                                              Background="Transparent"
@@ -1093,7 +1111,7 @@
                                                        FontWeight="Medium"
                                                        Margin="2,7,0,0"/>
 
-                                            <TextBlock Text="SAVE TO"
+                                            <TextBlock Text="DOWNLOAD ROOT"
                                                        Foreground="{DynamicResource LabelBrush}"
                                                        FontSize="11"
                                                        FontWeight="SemiBold"
@@ -1113,6 +1131,9 @@
 
                                                     <TextBox x:Name="SophonDestinationTextBox"
                                                              Height="38"
+                                                             TextChanged="SophonDestinationTextBox_TextChanged"
+                                                             LostFocus="DestinationPathTextBox_LostFocus"
+                                                             ToolTip="Relative paths are resolved from the folder containing KitsuneSophonDownloader.exe. Example: .\SophonDownloads"
                                                              VerticalContentAlignment="Center"
                                                              Padding="10,0"
                                                              Background="Transparent"
@@ -1192,7 +1213,7 @@
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Bottom"
                                    Margin="0,0,46,5"
-                                   Foreground="{DynamicResource MutedTextBrush}"
+                                   Foreground="{DynamicResource HeaderForegroundBrush}"
                                    FontSize="14"
                                    FontWeight="Medium"
                                    Opacity=".85"/>
@@ -1231,9 +1252,9 @@
 
         <Border x:Name="ExploreHost"
                 Panel.ZIndex="1100"
-                Margin="1"
+                Margin="0"
                 Background="{DynamicResource WindowBackgroundBrush}"
-                CornerRadius="13"
+                CornerRadius="0"
                 ClipToBounds="True"
                 Visibility="Collapsed"/>
 
@@ -1243,7 +1264,7 @@
                 Opacity="0.96"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
-                CornerRadius="14"
+                CornerRadius="0"
                 ClipToBounds="True">
             <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <StackPanel x:Name="StartupLoadingPanel"
@@ -1255,7 +1276,7 @@
                         <ScaleTransform x:Name="StartupLoadingScaleTransform" ScaleX="1" ScaleY="1"/>
                     </StackPanel.RenderTransform>
                     <TextBlock x:Name="StartupLoadingTitle"
-                               Text="Initializing SophonDownloader..."
+                               Text="Initializing Kitsune Sophon Downloader..."
                                HorizontalAlignment="Center"
                                FontSize="22"
                                FontWeight="SemiBold"
